@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Script {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  filename    String   @unique
+  content     String
+  category    String   @default("Uncategorized")
+  language    String   @default("python")
+  source      String   @default("manual")
+  sourceUrl   String?
+  params      String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  executions ExecutionLog[]
+}
+
+model ExecutionLog {
+  id        String   @id @default(cuid())
+  scriptId  String
+  script    Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  params    String   @default("{}")
+  output    String   @default("")
+  error     String   @default("")
+  status    String   @default("pending")
+  duration  Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model LlmConfig {
+  id        String   @id @default(cuid())
+  name      String
+  provider  String   @default("z-ai")
+  apiKey    String   @default("")
+  baseUrl   String   @default("")
+  model     String   @default("")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
