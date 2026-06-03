@@ -53,7 +53,6 @@ export default function HomePage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [llmSettingsOpen, setLlmSettingsOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [mobileExecutionOpen, setMobileExecutionOpen] = useState(false);
 
   // Fetch scripts for category sidebar counts
   const { data } = useQuery({
@@ -80,8 +79,6 @@ export default function HomePage() {
   );
 
   const totalScripts = allScripts.length;
-
-  // The execution panel will be shown in a Sheet on mobile when a script is selected
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -159,9 +156,9 @@ export default function HomePage() {
             Upload
           </Button>
 
-          <Button variant="ghost" size="icon-sm" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+          <Button variant="ghost" size="icon-sm" className="relative" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
             <Sun className="size-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute size-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+            <Moon className="absolute inset-0 m-auto size-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           </Button>
 
           <Button
@@ -306,10 +303,9 @@ export default function HomePage() {
 
         {/* Mobile Execution Panel */}
         <Sheet
-          open={!!selectedScriptId && mobileExecutionOpen}
+          open={!!selectedScriptId}
           onOpenChange={(open) => {
             if (!open) {
-              setMobileExecutionOpen(false);
               setSelectedScript(null);
             }
           }}
