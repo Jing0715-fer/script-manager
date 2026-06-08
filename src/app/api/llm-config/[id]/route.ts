@@ -1,7 +1,24 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
-// PUT /api/llm-config/[id] - Update LLM config by id
+// GET /api/llm-config/[id]
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const config = await db.llmConfig.findUnique({ where: { id } });
+    if (!config) return NextResponse.json({ error: 'Config not found' }, { status: 404 });
+    const { apiKey, ...rest } = config;
+    return NextResponse.json({ config: rest });
+  } catch (error) {
+    console.error('Error fetching LLM config:', error);
+    return NextResponse.json({ error: 'Failed to fetch LLM config' }, { status: 500 });
+  }
+}
+
+// PUT /api/llm-config/[id]
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -18,7 +35,6 @@ export async function PUT(
       );
     }
 
-    // If setting as default, unset any existing default
     if (body.isDefault) {
       await db.llmConfig.updateMany({
         where: { isDefault: true },
@@ -38,7 +54,8 @@ export async function PUT(
       },
     });
 
-    return NextResponse.json({ config });
+    const { apiKey: _, ...safeConfig } = config;
+    return NextResponse.json({ config: safeConfig });
   } catch (error) {
     console.error('Error updating LLM config:', error);
     return NextResponse.json(
@@ -48,7 +65,7 @@ export async function PUT(
   }
 }
 
-// DELETE /api/llm-config/[id] - Delete LLM config by id
+// DELETE /api/llm-config/[id]
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

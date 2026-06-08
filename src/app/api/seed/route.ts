@@ -1,217 +1,137 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getSeedData } from '@/lib/demo-data';
+import { PPTX_SKILLS } from '@/lib/pptx-skills-data';
 
-const GITHUB_REPO = 'Jing0715-fer/my-py-scripts';
-const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/git/trees/main?recursive=1`;
-const RAW_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main`;
+const REPO_RAW_BASE = 'https://raw.githubusercontent.com/Jing0715-fer/pptx-template-editor/main';
 
-interface GitHubTreeItem {
-  path: string;
-  mode: string;
-  type: string;
-  sha: string;
-  size?: number;
-  url: string;
-}
+// GET /api/seed - Seed demo scripts
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const source = searchParams.get('source') || 'demo';
 
-function extractDescription(content: string): string {
-  const lines = content.split('\n');
-
-  // Try to find docstring (first """ or ''' block)
-  const docstringMatch = content.match(/"""([\s\S]*?)"""/) || content.match(/'''([\s\S]*?)'''/);
-  if (docstringMatch) {
-    const docContent = docstringMatch[1].trim();
-    // Return first non-empty line of the docstring
-    const firstLine = docContent.split('\n').find((l) => l.trim().length > 0);
-    return firstLine?.trim() || '';
-  }
-
-  // Try to find # description comments at the top
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#') && trimmed.length > 1) {
-      // Skip shebang and encoding lines
-      if (trimmed.startsWith('#!') || trimmed.startsWith('# -*-')) continue;
-      return trimmed.replace(/^#+\s*/, '').trim();
-    }
-    // Stop looking if we hit code (non-comment, non-empty line)
-    if (trimmed.length > 0 && !trimmed.startsWith('#')) break;
-  }
-
-  return '';
-}
-
-function determineCategory(path: string, content: string): string {
-  const parts = path.split('/');
-  const filename = parts[parts.length - 1].toLowerCase();
-  const contentLower = content.toLowerCase();
-
-  // If in subdirectory, use that as category
-  if (parts.length > 1) {
-    const category = parts[0];
-    return category
-      .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-  }
-
-  // Categorize based on filename and content keywords
-  // Visualization & Graphics
-  if (filename.includes('visualizer') || filename.includes('epitope') ||
-      contentLower.includes('chimerax') || contentLower.includes('pptx') ||
-      filename.includes('ppt') || filename.includes('scalebar') ||
-      filename.includes('tile') || filename.includes('isomesh')) {
-    return 'Visualization';
-  }
-
-  // Structural Biology / Protein Analysis
-  if (filename.includes('cdr') || filename.includes('fab') ||
-      filename.includes('interaction') || filename.includes('interface') ||
-      filename.includes('rmsd') || filename.includes('protein') ||
-      filename.includes('anarci') || filename.includes('h_bond') ||
-      filename.includes('locres') || filename.includes('mrc') ||
-      filename.includes('segment') || filename.includes('chainid') ||
-      filename.includes('segid') || filename.includes('ligand')) {
-    return 'Structural Biology';
-  }
-
-  // Runner / CLI / UI
-  if (filename.includes('runner') || filename.includes('cli') ||
-      filename.includes('script_ui') || filename.includes('run_script') ||
-      filename.includes('simple_runner') || filename.includes('button')) {
-    return 'Runner';
-  }
-
-  // Test scripts
-  if (filename.startsWith('test') || filename === 'nb.py' || filename === 'pi.py') {
-    return 'Test';
-  }
-
-  // Automation / Utility
-  if (filename.includes('rename') || filename.includes('auto_') ||
-      filename.includes('拆分') || filename.includes('flip') ||
-      filename.includes('color') || filename.includes('highlight')) {
-    return 'Automation';
-  }
-
-  return 'Utility';
-}
-
-// GET /api/seed - Import scripts from GitHub repo
-export async function GET() {
   try {
-    // Fetch repo tree
-    const treeResponse = await fetch(GITHUB_API_URL, {
-      headers: {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'script-manager-app',
-      },
-    });
+    if (source === 'github') {
+      const GITHUB_REPO = 'Jing0715-fer/my-py-scripts';
+      const RAW_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main`;
 
-    if (!treeResponse.ok) {
-      const errorText = await treeResponse.text();
-      console.error('GitHub API error:', treeResponse.status, errorText);
+      // List of all script files in my-py-scripts repo
+      const scriptFiles = [
+        'ANARCI.py', 'H_bond_interface_plan.py', 'add_scalebar.py',
+        'auto_color_locres.py', 'cli_runner.py', 'epitope_visualizer.py',
+        'epitope_visualizer_pptx.py', 'fab_cdr_to_chimerax_api.py',
+        'find_cdr_of_fab.py', 'flip_all_mrc.py', 'highlight_cdr_auto.py',
+        'interaction_matrix.py', 'interaction_to_excel.py',
+        'interaction_to_xlxs_chimeraX.py', 'interface_residue_ppt.py',
+        'interface_visualizer.py', 'lignad_interaction.py', 'locres_query.py',
+        'nb.py', 'pi.py', 'ppt_to_images.py',
+        'protein_interface_analysis.py', 'rename_chainid.py',
+        'rename_chainid2.py', 'rmsd.py', 'rmsd_chimera.py',
+        'run_script.py', 'run_segid.py', 'script_runner.py', 'script_ui.py',
+        'segID.py', 'segid_runner.py', 'segment_and_isomesh_auto.py',
+        'simple_runner.py', 'test.py', 'test_button.py', 'test_cli.py',
+        'test_script.py', 'test_segid.py', 'tile.py',
+      ];
 
-      if (treeResponse.status === 403) {
-        return NextResponse.json(
-          { error: 'GitHub API rate limit exceeded. Please try again later.' },
-          { status: 429 }
-        );
+      let imported = 0;
+      let failed = 0;
+      for (const file of scriptFiles) {
+        try {
+          const rawUrl = `${RAW_BASE_URL}/${file}`;
+          const contentResponse = await fetch(rawUrl);
+          if (contentResponse.ok) {
+            const content = await contentResponse.text();
+            const filename = file;
+            // Generate human-readable name from filename
+            const name = file.replace(/\.py$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            const description = content.split('\n').find((l: string) => l.trim().startsWith('"""') || (l.trim().startsWith('#') && !l.trim().startsWith('#!')))?.replace(/^#+\s*/, '').replace(/^"""\s*/, '').slice(0, 200) || `Script: ${name}`;
+            const category = 'Structural Biology';
+
+            await db.script.upsert({
+              where: { filename },
+              update: { name, description, content, category, language: 'python', source: 'github', sourceUrl: rawUrl },
+              create: { name, description, filename, content, category, language: 'python', source: 'github', sourceUrl: rawUrl, params: '[]', inputFiles: '[]', outputFiles: '[]' },
+            });
+            imported++;
+          } else { failed++; }
+        } catch { failed++; }
       }
-
-      return NextResponse.json(
-        { error: `Failed to fetch repository tree: ${treeResponse.status}` },
-        { status: 502 }
-      );
+      return NextResponse.json({ imported, failed, total: scriptFiles.length, message: `Imported ${imported} of ${scriptFiles.length} from my-py-scripts (${failed} failed)` });
     }
 
-    const treeData = await treeResponse.json();
-    const treeItems: GitHubTreeItem[] = treeData.tree || [];
-
-    // Filter for .py files
-    const pyFiles = treeItems.filter(
-      (item) =>
-        item.type === 'blob' &&
-        item.path.endsWith('.py') &&
-        !item.path.includes('__pycache__') &&
-        !item.path.includes('.venv')
-    );
-
-    if (pyFiles.length === 0) {
-      return NextResponse.json({
-        imported: 0,
-        errors: [],
-        message: 'No Python files found in the repository',
-      });
+    if (source === 'pptx-template-editor') {
+      let imported = 0;
+      let failed = 0;
+      for (const skill of PPTX_SKILLS) {
+        try {
+          const rawUrl = `${REPO_RAW_BASE}/${skill.scriptPath}`;
+          const resp = await fetch(rawUrl);
+          if (resp.ok) {
+            const content = await resp.text();
+            await db.script.upsert({
+              where: { filename: skill.filename },
+              update: { name: skill.name, description: skill.description, content, category: skill.category, language: skill.language, source: 'github', sourceUrl: rawUrl, params: skill.params, inputFiles: skill.inputFiles, outputFiles: skill.outputFiles, tags: skill.tags },
+              create: { name: skill.name, description: skill.description, filename: skill.filename, content, category: skill.category, language: skill.language, source: 'github', sourceUrl: rawUrl, params: skill.params, inputFiles: skill.inputFiles, outputFiles: skill.outputFiles, tags: skill.tags },
+            });
+            imported++;
+          } else { failed++; }
+        } catch { failed++; }
+      }
+      return NextResponse.json({ imported, failed, total: PPTX_SKILLS.length, message: `Imported ${imported}/${PPTX_SKILLS.length} from pptx-template-editor` });
     }
 
-    let imported = 0;
-    const errors: { path: string; error: string }[] = [];
+    if (source === 'all') {
+      let totalImported = 0;
 
-    // Process each file
-    for (const file of pyFiles) {
-      try {
-        // Fetch file content
-        const rawUrl = `${RAW_BASE_URL}/${file.path}`;
-        const contentResponse = await fetch(rawUrl);
-
-        if (!contentResponse.ok) {
-          errors.push({
-            path: file.path,
-            error: `Failed to fetch content: ${contentResponse.status}`,
+      // 1. Demo scripts
+      const DEMO_SCRIPTS = getSeedData();
+      for (const script of DEMO_SCRIPTS) {
+        try {
+          await db.script.upsert({
+            where: { filename: script.filename },
+            update: { name: script.name, description: script.description, content: script.content, category: script.category, language: script.language, source: script.source, params: script.params, inputFiles: script.inputFiles, outputFiles: script.outputFiles },
+            create: { name: script.name, description: script.description, filename: script.filename, content: script.content, category: script.category, language: script.language, source: script.source, params: script.params, inputFiles: script.inputFiles, outputFiles: script.outputFiles },
           });
-          continue;
-        }
-
-        const content = await contentResponse.text();
-
-        // Extract metadata
-        const description = extractDescription(content);
-        const category = determineCategory(file.path, content);
-        const filename = file.path.split('/').pop() || file.path;
-        const name = filename.replace(/\.py$/, '').replace(/[-_]/g, ' ');
-
-        // Upsert the script (by unique filename)
-        await db.script.upsert({
-          where: { filename },
-          update: {
-            name,
-            description,
-            content,
-            category,
-            language: 'python',
-            source: 'github',
-            sourceUrl: rawUrl,
-          },
-          create: {
-            name,
-            description,
-            filename,
-            content,
-            category,
-            language: 'python',
-            source: 'github',
-            sourceUrl: rawUrl,
-          },
-        });
-
-        imported++;
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-        errors.push({ path: file.path, error: errorMsg });
+          totalImported++;
+        } catch { /* ignore */ }
       }
+
+      // 2. pptx-template-editor scripts
+      for (const skill of PPTX_SKILLS) {
+        try {
+          const rawUrl = `${REPO_RAW_BASE}/${skill.scriptPath}`;
+          const resp = await fetch(rawUrl);
+          if (resp.ok) {
+            const content = await resp.text();
+            await db.script.upsert({
+              where: { filename: skill.filename },
+              update: { name: skill.name, description: skill.description, content, category: skill.category, language: skill.language, source: 'github', sourceUrl: rawUrl, params: skill.params, inputFiles: skill.inputFiles, outputFiles: skill.outputFiles, tags: skill.tags },
+              create: { name: skill.name, description: skill.description, filename: skill.filename, content, category: skill.category, language: skill.language, source: 'github', sourceUrl: rawUrl, params: skill.params, inputFiles: skill.inputFiles, outputFiles: skill.outputFiles, tags: skill.tags },
+            });
+            totalImported++;
+          }
+        } catch { /* ignore */ }
+      }
+
+      return NextResponse.json({ imported: totalImported, message: `Seeded all: ${DEMO_SCRIPTS.length} demo + ${PPTX_SKILLS.length} pptx-template-editor` });
     }
 
-    return NextResponse.json({
-      imported,
-      total: pyFiles.length,
-      errors,
-      message: `Successfully imported ${imported} of ${pyFiles.length} scripts`,
-    });
+    // Default: demo scripts
+    const DEMO_SCRIPTS = getSeedData();
+    let imported = 0;
+    for (const script of DEMO_SCRIPTS) {
+      try {
+        await db.script.upsert({
+          where: { filename: script.filename },
+          update: { name: script.name, description: script.description, content: script.content, category: script.category, language: script.language, source: script.source, params: script.params, inputFiles: script.inputFiles, outputFiles: script.outputFiles },
+          create: { name: script.name, description: script.description, filename: script.filename, content: script.content, category: script.category, language: script.language, source: script.source, params: script.params, inputFiles: script.inputFiles, outputFiles: script.outputFiles },
+        });
+        imported++;
+      } catch { /* ignore */ }
+    }
+    return NextResponse.json({ imported, total: DEMO_SCRIPTS.length, message: `Imported ${imported} demo scripts` });
   } catch (error) {
     console.error('Error seeding scripts:', error);
-    return NextResponse.json(
-      { error: 'Failed to seed scripts from GitHub' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to seed scripts' }, { status: 500 });
   }
 }

@@ -16,6 +16,11 @@ export async function GET(
           orderBy: { createdAt: 'desc' },
           take: 10,
         },
+        externalApps: {
+          include: {
+            app: true,
+          },
+        },
       },
     });
 
@@ -65,6 +70,11 @@ export async function PUT(
         ...(body.source !== undefined && { source: body.source }),
         ...(body.sourceUrl !== undefined && { sourceUrl: body.sourceUrl }),
         ...(body.params !== undefined && { params: body.params }),
+        ...(body.inputFiles !== undefined && { inputFiles: body.inputFiles }),
+        ...(body.outputFiles !== undefined && { outputFiles: body.outputFiles }),
+        ...(body.rating !== undefined && { rating: body.rating }),
+        ...(body.notes !== undefined && { notes: body.notes }),
+        ...(body.tags !== undefined && { tags: body.tags }),
       },
     });
 

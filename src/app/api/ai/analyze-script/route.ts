@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ZAI from 'z-ai-web-dev-sdk';
+import { getActiveLlmConfig } from '@/lib/get-llm-config';
 
 interface AnalysisResult {
   description: string;
@@ -9,6 +10,17 @@ interface AnalysisResult {
     description: string;
     required: boolean;
     default?: string;
+  }>;
+  inputFiles: Array<{
+    name: string;
+    description: string;
+    required: boolean;
+    format: string;
+  }>;
+  outputFiles: Array<{
+    name: string;
+    description: string;
+    format: string;
   }>;
   dependencies: string[];
   usage: string;
@@ -28,7 +40,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create AI instance
+    // Load stored LLM config from database
+    const llmConfig = await getActiveLlmConfig();
+    if (!llmConfig) {
+      return NextResponse.json(
+        { error: 'No LLM configuration found. Please configure an LLM in Settings first.' },
+        { status: 400 }
+      );
+    }
+
+    console.log(`[analyze-script] Using LLM config: "${llmConfig.name}" (provider=${llmConfig.provider}, model=${llmConfig.model || 'default'})`);
+
     const zai = await ZAI.create();
 
     const prompt = `Analyze the following script file named "${filename || 'unknown'}" and extract structured information.
@@ -44,10 +66,25 @@ Please provide a JSON analysis with the following structure (respond with ONLY v
   "parameters": [
     {
       "name": "parameter_name",
-      "type": "string|number|boolean|etc",
+      "type": "string|number|boolean|file|path",
       "description": "What this parameter does",
       "required": true,
       "default": "default value if any"
+    }
+  ],
+  "inputFiles": [
+    {
+      "name": "input_file_name",
+      "description": "What this input file is used for",
+      "required": true,
+      "format": "pdb|csv|json|txt|etc"
+    }
+  ],
+  "outputFiles": [
+    {
+      "name": "output_file_name",
+      "description": "What this output file contains",
+      "format": "pdb|csv|json|txt|etc"
     }
   ],
   "dependencies": ["list", "of", "external", "dependencies"],
@@ -57,17 +94,22 @@ Please provide a JSON analysis with the following structure (respond with ONLY v
 
 Rules:
 - Extract command-line arguments and parameters the script accepts
+- Identify ALL input files the script reads or requires (e.g., PDB files, CSV files, config files)
+- Identify ALL output files the script generates or writes
 - Identify all external dependencies and imports
 - Provide accurate usage instructions
 - If no parameters are found, return an empty array
-- If no dependencies beyond standard library, return an empty array`;
+- If no input/output files are found, return empty arrays
+- If no dependencies beyond standard library, return an empty array
+- Pay special attention to file paths, open() calls, and argparse arguments that represent files`;
 
-    const result = await zai.chat.completions.create({
+    // Build the request with model from config if specified
+    const createParams: Record<string, unknown> = {
       messages: [
         {
           role: 'system',
           content:
-            'You are a code analysis expert. Analyze scripts and extract structured information. Always respond with valid JSON only, no markdown formatting.',
+            'You are a code analysis expert. Analyze scripts and extract structured information about their inputs, outputs, parameters, and dependencies. Always respond with valid JSON only, no markdown formatting.',
         },
         {
           role: 'user',
@@ -75,9 +117,14 @@ Rules:
         },
       ],
       thinking: { type: 'disabled' },
-    });
+    };
 
-    // Parse the AI response
+    if (llmConfig.model) {
+      createParams.model = llmConfig.model;
+    }
+
+    const result = await zai.chat.completions.create(createParams as any);
+
     let analysis: AnalysisResult;
 
     if (result?.choices?.[0]?.message?.content) {
@@ -91,11 +138,17 @@ Rules:
 
       try {
         analysis = JSON.parse(contentStr);
+        // Ensure arrays exist
+        analysis.parameters = analysis.parameters || [];
+        analysis.inputFiles = analysis.inputFiles || [];
+        analysis.outputFiles = analysis.outputFiles || [];
+        analysis.dependencies = analysis.dependencies || [];
       } catch {
-        // If JSON parsing fails, return the raw content
         analysis = {
           description: contentStr,
           parameters: [],
+          inputFiles: [],
+          outputFiles: [],
           dependencies: [],
           usage: '',
           summary: contentStr.substring(0, 200),
@@ -108,7 +161,7 @@ Rules:
       );
     }
 
-    return NextResponse.json({ analysis });
+    return NextResponse.json({ analysis, configName: llmConfig.name });
   } catch (error) {
     console.error('Error analyzing script:', error);
     return NextResponse.json(
