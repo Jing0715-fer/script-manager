@@ -8,7 +8,7 @@ export async function GET() {
       orderBy: { updatedAt: 'desc' },
     });
 
-    return NextResponse.json({ configs });
+    return NextResponse.json({ configs: configs.map(({ apiKey, ...rest }) => rest) });
   } catch (error) {
     console.error('Error fetching LLM configs:', error);
     return NextResponse.json(
@@ -31,7 +31,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // If this is set as default, unset any existing default
     if (isDefault) {
       await db.llmConfig.updateMany({
         where: { isDefault: true },
@@ -50,7 +49,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ config }, { status: 201 });
+    const { apiKey: _, ...safeConfig } = config;
+    return NextResponse.json({ config: safeConfig }, { status: 201 });
   } catch (error) {
     console.error('Error creating LLM config:', error);
     return NextResponse.json(

@@ -1,10 +1,11 @@
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model Script {
@@ -18,22 +19,31 @@ model Script {
   source      String   @default("manual")
   sourceUrl   String?
   params      String   @default("[]")
+  inputFiles  String   @default("[]")
+  outputFiles String   @default("[]")
+  tags        String?   // JSON array of tag strings, e.g. ["ml", "data-processing"]
+  rating      Float?    // 1-5 star rating
+  notes       String?   // User notes about the script
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  executions ExecutionLog[]
+  executions    ExecutionLog[]
+  externalApps  ScriptExternalApp[]
+  versions      ScriptVersion[]
 }
 
 model ExecutionLog {
-  id        String   @id @default(cuid())
-  scriptId  String
-  script    Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
-  params    String   @default("{}")
-  output    String   @default("")
-  error     String   @default("")
-  status    String   @default("pending")
-  duration  Int      @default(0)
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  scriptId    String
+  script      Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  params      String   @default("{}")
+  output      String   @default("")
+  error       String   @default("")
+  status      String   @default("pending")
+  duration    Int      @default(0)
+  exitCode    Int?
+  resultFiles String   @default("[]")
+  createdAt   DateTime @default(now())
 }
 
 model LlmConfig {
@@ -46,4 +56,44 @@ model LlmConfig {
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model ExternalApp {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  appPath     String   @default("")
+  appType     String   @default("generic")
+  icon        String   @default("terminal")
+  scriptExt   String   @default(".py")
+  runCommand  String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  scripts ScriptExternalApp[]
+}
+
+model ScriptExternalApp {
+  id         String   @id @default(cuid())
+  scriptId   String
+  script     Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  appId      String
+  app        ExternalApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+  autoScript String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([scriptId, appId])
+}
+
+model ScriptVersion {
+  id        String   @id @default(cuid())
+  scriptId  String
+  content   String
+  lineCount Int
+  message   String?
+  createdAt DateTime @default(now())
+  script    Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+
+  @@index([scriptId, createdAt(sort: Desc)])
 }
