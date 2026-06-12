@@ -3,9 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "NODE_OPTIONS=--max-old-space-size=512 next dev -p 3003 --turbopack",
+    "dev": "NODE_OPTIONS=--max-old-space-size=512 next dev -p 3002 --turbopack",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_OPTIONS=--max-old-space-size=512 next dev -p 3003 --turbopack",
+    "start": "NODE_OPTIONS=--max-old-space-size=512 next dev -p 3002 --turbopack",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",

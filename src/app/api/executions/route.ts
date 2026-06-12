@@ -84,12 +84,12 @@ export async function GET(request: NextRequest) {
     });
 
     // Compute aggregate stats (across all matching records)
-    const successCount = allMatchingExecutions.filter(e => e.status === 'success').length;
-    const errorCount = allMatchingExecutions.filter(e => e.status === 'error').length;
-    const runningCount = allMatchingExecutions.filter(e => e.status === 'running').length;
-    const durations = allMatchingExecutions.filter(e => e.duration > 0).map(e => e.duration);
+    const successCount = allMatchingExecutions.filter((e: { status: string }) => e.status === 'success').length;
+    const errorCount = allMatchingExecutions.filter((e: { status: string }) => e.status === 'error').length;
+    const runningCount = allMatchingExecutions.filter((e: { status: string }) => e.status === 'running').length;
+    const durations = allMatchingExecutions.filter((e: { duration: number }) => e.duration > 0).map((e: { duration: number }) => e.duration);
     const avgDuration = durations.length > 0
-      ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+      ? Math.round(durations.reduce((a: number, b: number) => a + b, 0) / durations.length)
       : 0;
     const totalRuns = allMatchingExecutions.length;
     const successRate = totalRuns > 0 ? parseFloat(((successCount / totalRuns) * 100).toFixed(1)) : 0;
@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
       }));
 
     return NextResponse.json({
-      executions: executions.map(e => ({
+      executions: executions.map((e: any) => ({
         id: e.id,
         scriptId: e.scriptId,
         scriptName: e.script?.name || 'Unknown',

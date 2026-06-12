@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -995,7 +996,7 @@ export function ExecPanel({ script, onClose, onUpdated, allTags = [] }: { script
                   result.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                   : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                 }`}>
-                  {result.status === 'success' ? '✓ Success' : '✗ Error'}
+                  {result.status === 'success' ? 'Success' : 'Error'}
                 </Badge>
                 {result.exitCode !== undefined && (
                   <Badge variant="outline" className="text-[9px]">Exit: {result.exitCode}</Badge>

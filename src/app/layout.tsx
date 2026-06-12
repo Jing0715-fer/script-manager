@@ -1,23 +1,19 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Providers } from "@/lib/providers";
+import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/theme-provider";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// Use system font stack instead of next/font/google to avoid build-time network fetch
+const geistSans = { variable: "" };
+const geistMono = { variable: "" };
 
 export const metadata: Metadata = {
-  title: "Script Manager - AI-Powered Script Hub",
-  description: "Manage, analyze, and execute scripts with AI-powered insights. Support for external applications, file management, and auto-generated launcher scripts.",
+  title: "ScriptHub - Structural Biology Script Manager",
+  description: "Manage, generate, and execute ChimeraX and PyMOL scripts for structural biology workflows.",
+  keywords: ["ScriptHub", "ChimeraX", "PyMOL", "structural biology", "script manager", "Z.ai"],
+  authors: [{ name: "Z.ai Team" }],
   icons: {
-    icon: "/favicon.svg",
+    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
 };
 
@@ -31,9 +27,15 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
-        <Providers>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
           {children}
-        </Providers>
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
 
     // Build CSV
     const headers = ['Script Name', 'Status', 'Duration (ms)', 'Exit Code', 'Timestamp', 'Output', 'Error'];
-    const rows = executions.map(e => [
+    const rows = executions.map((e: { script?: { name?: string } | null; status: string; duration: number; exitCode: number | null; createdAt: Date; output?: string | null; error?: string | null }) => [
       escapeCsv(e.script?.name || 'Unknown'),
       escapeCsv(e.status),
       String(e.duration),
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
       escapeCsv(truncate(e.error || '', 200)),
     ]);
 
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const csvContent = [headers.join(','), ...rows.map((r: string[]) => r.join(','))].join('\n');
 
     const filename = `execution-report-${period}-${now.toISOString().split('T')[0]}.csv`;
 

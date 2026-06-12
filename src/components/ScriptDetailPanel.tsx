@@ -1,0 +1,893 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import {
+  X,
+  Copy,
+  Play,
+  Star,
+  Pin,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Download,
+  ExternalLink,
+  Loader2,
+  Pencil,
+  Files,
+  FileCode2,
+  Code2,
+} from 'lucide-react'
+import CodeHighlighter from '@/components/CodeHighlighter'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
+import { FileDropInput } from '@/components/ui/file-drop-input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useIsMobile } from '@/hooks/use-mobile'
+import { useScriptStore } from '@/store/script-store'
+import { CATEGORY_COLORS, APP_TYPE_INFO } from '@/types'
+import type { ScriptParam, ExecutionLog } from '@/types'
+import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import { motion, AnimatePresence } from 'framer-motion'
+
+function ParamField({
+  param,
+  value,
+  onChange,
+}: {
+  param: ScriptParam
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  switch (param.type) {
+    case 'string':
+      return (
+        <div className="space-y-1.5">
+          <Label className="text-sm">
+            {param.label}
+            {param.required && <span className="text-destructive ml-0.5">*</span>}
+          </Label>
+          <Input
+            value={(value as string) || param.default as string || ''}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={param.placeholder}
+          />
+          {param.description && (
+            <p className="text-xs text-muted-foreground">{param.description}</p>
+          )}
+        </div>
+      )
+    case 'number':
+      return (
+        <div className="space-y-1.5">
+          <Label className="text-sm">
+            {param.label}
+            {param.required && <span className="text-destructive ml-0.5">*</span>}
+          </Label>
+          <Input
+            type="number"
+            value={(value as number) || param.default as number || ''}
+            onChange={(e) => onChange(Number(e.target.value))}
+            placeholder={param.placeholder}
+          />
+          {param.description && (
+            <p className="text-xs text-muted-foreground">{param.description}</p>
+          )}
+        </div>
+      )
+    case 'boolean':
+      return (
+        <div className="flex items-center justify-between py-1">
+          <div>
+            <Label className="text-sm">{param.label}</Label>
+            {param.description && (
+              <p className="text-xs text-muted-foreground">{param.description}</p>
+            )}
+          </div>
+          <Switch
+            checked={(value as boolean) ?? (param.default as boolean) ?? false}
+            onCheckedChange={onChange}
+          />
+        </div>
+      )
+    case 'select':
+      return (
+        <div className="space-y-1.5">
+          <Label className="text-sm">
+            {param.label}
+            {param.required && <span className="text-destructive ml-0.5">*</span>}
+          </Label>
+          <Select
+            value={(value as string) || (param.default as string) || ''}
+            onValueChange={onChange}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={param.placeholder || 'Select...'} />
+            </SelectTrigger>
+            <SelectContent>
+              {param.options?.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {param.description && (
+            <p className="text-xs text-muted-foreground">{param.description}</p>
+          )}
+        </div>
+      )
+    case 'file':
+      return (
+        <FileDropInput
+          label={param.label}
+          value={(value as string) || (param.default as string) || ''}
+          onChange={onChange}
+          required={param.required}
+          description={param.description}
+          accept=".pdb,.mrc,.cif,.mmcif,.map,.mtz,.csv,.json,.txt,.xlsx,.xls,.fa,.fasta,.docx,.pdf"
+        />
+      )
+    case 'path':
+      return (
+        <FileDropInput
+          label={param.label}
+          value={(value as string) || (param.default as string) || ''}
+          onChange={onChange}
+          required={param.required}
+          description={param.description}
+        />
+      )
+    default:
+      return null
+  }
+}
+
+function StatusIcon({ status }: { status: ExecutionLog['status'] }) {
+  switch (status) {
+    case 'success':
+      return <CheckCircle2 className="size-4 text-emerald-500" />
+    case 'error':
+      return <XCircle className="size-4 text-destructive" />
+    case 'running':
+      return <Loader2 className="size-4 text-teal-500 animate-spin" />
+    case 'pending':
+      return <Clock className="size-4 text-muted-foreground" />
+    case 'timeout':
+      return <AlertCircle className="size-4 text-amber-500" />
+    default:
+      return null
+  }
+}
+
+export default function ScriptDetailPanel() {
+  const isMobile = useIsMobile()
+  const {
+    selectedScript,
+    detailPanelOpen,
+    setDetailPanelOpen,
+    selectScript,
+    toggleFavorite,
+    togglePinned,
+    executeScript,
+    isExecuting,
+    executionOutput,
+    executionError,
+    loadExecutions,
+    executionLogs,
+    externalApps,
+    loadExternalApps,
+    createScript,
+    loadScripts,
+  } = useScriptStore()
+
+  const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
+  const [copied, setCopied] = useState(false)
+  const [activeTab, setActiveTab] = useState('code')
+  const [versionHistory, setVersionHistory] = useState<Array<{ id: string; version: number; code: string; message: string; createdAt: string }>>([])
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null)
+
+  // Reset paramValues when selectedScript changes (React recommended pattern)
+  // Using useState to track previous id so setState only runs when id actually changes
+  const [prevScriptId, setPrevScriptId] = useState<string | null>(null)
+  const currentId = selectedScript?.id ?? null
+  if (currentId !== prevScriptId) {
+    setPrevScriptId(currentId)
+    const defaults: Record<string, unknown> = {}
+    selectedScript?.params?.forEach((p) => {
+      if (p.default !== undefined) defaults[p.name] = p.default
+    })
+    setParamValues(defaults)
+  }
+
+  useEffect(() => {
+    if (detailPanelOpen && selectedScript) {
+      loadExecutions(selectedScript.id)
+      loadExternalApps()
+      // Load version history
+      fetch(`/api/scripts/versions?scriptId=${selectedScript.id}`)
+        .then(res => res.json())
+        .then(data => setVersionHistory(Array.isArray(data) ? data : []))
+        .catch(() => setVersionHistory([]))
+    }
+  }, [detailPanelOpen, selectedScript, loadExecutions, loadExternalApps])
+
+  const handleParamChange = (name: string, value: unknown) => {
+    setParamValues((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const handleExecute = async () => {
+    if (!selectedScript) return
+    try {
+      await executeScript(selectedScript.id, paramValues)
+      toast.success('Script executed successfully')
+    } catch {
+      toast.error('Script execution failed')
+    }
+  }
+
+  const handleCopy = async () => {
+    if (!selectedScript) return
+    await navigator.clipboard.writeText(selectedScript.code)
+    setCopied(true)
+    toast.success('Code copied to clipboard')
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleClose = () => {
+    setDetailPanelOpen(false)
+    selectScript(null)
+  }
+
+  const handleExportScript = () => {
+    if (!selectedScript) return
+    const extension = selectedScript.language === 'chimerax' ? 'cxc' : 'py'
+    const safeName = selectedScript.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+    const filename = `${safeName}.${extension}`
+    const blob = new Blob([selectedScript.code], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success('Script exported')
+  }
+
+  const handleDuplicate = async () => {
+    if (!selectedScript) return
+    try {
+      await createScript({
+        name: `${selectedScript.name} (Copy)`,
+        description: selectedScript.description,
+        code: selectedScript.code,
+        language: selectedScript.language,
+        category: selectedScript.category,
+        tags: selectedScript.tags,
+      })
+      await loadScripts()
+      toast.success('Script duplicated')
+    } catch {
+      toast.error('Failed to duplicate script')
+    }
+  }
+
+  if (!selectedScript) return null
+
+  const colors = CATEGORY_COLORS[selectedScript.category] || CATEGORY_COLORS['General']
+  const scriptApps = selectedScript.apps || []
+  const connectedApps = externalApps.filter(
+    (app) => scriptApps.some((sa) => sa.appId === app.id)
+  )
+
+  const getHighlightLanguage = (language: string) => {
+    const lang = language?.toLowerCase() || ''
+    if (lang === 'python' || lang === 'pymol') return 'python'
+    if (lang === 'bash') return 'bash'
+    if (lang === 'r') return 'r'
+    if (lang === 'julia') return 'julia'
+    // ChimeraX scripts are similar to Python
+    return 'python'
+  }
+
+  // Code stats
+  const codeLines = selectedScript.code.split('\n').length
+  const codeSize = new Blob([selectedScript.code]).size
+  const codeSizeDisplay = codeSize > 1024 ? `${(codeSize / 1024).toFixed(1)} KB` : `${codeSize} B`
+  const languageLabel = selectedScript.language.charAt(0).toUpperCase() + selectedScript.language.slice(1)
+
+  const panelContent = (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="p-4 border-b shrink-0">
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex-1 min-w-0">
+            <h2 className="sr-only">
+              {selectedScript.name}
+            </h2>
+            <p className="text-sm text-muted-foreground line-clamp-2">
+              {selectedScript.description}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleClose}
+            className="shrink-0"
+            aria-label="Close detail panel"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+
+        {/* Code stats bar */}
+        <div className="flex items-center gap-3 mb-3 px-1">
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+            <span>{languageLabel}</span>
+            <span>{selectedScript.language}</span>
+          </div>
+          <span className="text-muted-foreground/20">·</span>
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+            <FileCode2 className="size-2.5" />
+            <span>{codeLines} lines</span>
+          </div>
+          <span className="text-muted-foreground/20">·</span>
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+            <Code2 className="size-2.5" />
+            <span>{codeSizeDisplay}</span>
+          </div>
+          {selectedScript.runCount > 0 && (
+            <>
+              <span className="text-muted-foreground/20">·</span>
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                <Play className="size-2.5" />
+                <span>{selectedScript.runCount} runs</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Badges and actions */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge
+            variant="outline"
+            className={cn('text-xs', colors.bg, colors.text, colors.border)}
+          >
+            {selectedScript.category}
+          </Badge>
+          <Badge variant="outline" className="text-xs gap-1">
+            {selectedScript.language}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            onClick={() => toggleFavorite(selectedScript.id)}
+          >
+            <Star
+              className={cn(
+                'size-3.5 mr-1',
+                selectedScript.isFavorite
+                  ? 'fill-amber-400 text-amber-400'
+                  : 'text-muted-foreground'
+              )}
+            />
+            <span className="text-xs">
+              {selectedScript.isFavorite ? 'Favorited' : 'Favorite'}
+            </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            onClick={() => togglePinned(selectedScript.id)}
+          >
+            <Pin
+              className={cn(
+                'size-3.5 mr-1',
+                selectedScript.isPinned
+                  ? 'fill-teal-500 text-teal-500'
+                  : 'text-muted-foreground'
+              )}
+            />
+            <span className="text-xs">
+              {selectedScript.isPinned ? 'Pinned' : 'Pin'}
+            </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            onClick={() => {
+              if (selectedScript) {
+                window.dispatchEvent(new CustomEvent('openEditScript', { detail: selectedScript.id }))
+              }
+            }}
+          >
+            <Pencil className="size-3.5 mr-1 text-muted-foreground" />
+            <span className="text-xs">Edit</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            onClick={handleDuplicate}
+          >
+            <Files className="size-3.5 mr-1 text-muted-foreground" />
+            <span className="text-xs">Duplicate</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            onClick={handleExportScript}
+          >
+            <Download className="size-3.5 mr-1 text-muted-foreground" />
+            <span className="text-xs">Export</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex-1 flex flex-col min-h-0"
+      >
+        <div className="px-4 pt-2 shrink-0">
+          <TabsList className="w-full">
+            <TabsTrigger value="code" className="flex-1 text-xs">
+              Code
+            </TabsTrigger>
+            <TabsTrigger value="params" className="flex-1 text-xs">
+              Parameters
+            </TabsTrigger>
+            <TabsTrigger value="history" className="flex-1 text-xs">
+              History
+            </TabsTrigger>
+            <TabsTrigger value="versions" className="flex-1 text-xs">
+              Versions
+            </TabsTrigger>
+            <TabsTrigger value="apps" className="flex-1 text-xs">
+              Apps
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Code Tab */}
+        <TabsContent value="code" className="flex-1 min-h-0 mt-0">
+          <ScrollArea className="h-full">
+            <div className="relative">
+              <div className="absolute top-2 right-2 z-10 flex gap-1">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={handleCopy}
+                >
+                  {copied ? (
+                    <CheckCircle2 className="size-3" />
+                  ) : (
+                    <Copy className="size-3" />
+                  )}
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+              <div className="rounded-lg overflow-hidden">
+                <CodeHighlighter
+                  language={getHighlightLanguage(selectedScript.language)}
+                  code={selectedScript.code}
+                  showLineNumbers
+                />
+              </div>
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        {/* Parameters Tab */}
+        <TabsContent value="params" className="flex-1 min-h-0 mt-0">
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-4">
+              {selectedScript.params && selectedScript.params.length > 0 ? (
+                selectedScript.params.map((param) => (
+                  <ParamField
+                    key={param.name}
+                    param={param}
+                    value={paramValues[param.name]}
+                    onChange={(value) => handleParamChange(param.name, value)}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p className="text-sm">No parameters required</p>
+                  <p className="text-xs mt-1">This script runs without any input</p>
+                </div>
+              )}
+              <Separator />
+              <div className="flex flex-col gap-2">
+                <Button
+                  onClick={handleExecute}
+                  disabled={isExecuting}
+                  className="w-full bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white"
+                >
+                  {isExecuting ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Executing...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="size-4" />
+                      Execute Script
+                    </>
+                  )}
+                </Button>
+                {(executionOutput || executionError) && (
+                  <div className="space-y-2">
+                    {executionOutput && (
+                      <div className="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-3">
+                        <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300 mb-1">
+                          Output
+                        </p>
+                        <pre className="text-xs text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap font-mono">
+                          {executionOutput}
+                        </pre>
+                      </div>
+                    )}
+                    {executionError && (
+                      <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+                        <p className="text-xs font-medium text-destructive mb-1">
+                          Error
+                        </p>
+                        <pre className="text-xs text-destructive whitespace-pre-wrap font-mono">
+                          {executionError}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        {/* History Tab */}
+        <TabsContent value="history" className="flex-1 min-h-0 mt-0">
+          <ScrollArea className="h-full">
+            <div className="p-4">
+              {executionLogs.length > 0 ? (
+                <div className="space-y-3">
+                  {executionLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="rounded-lg border p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <StatusIcon status={log.status} />
+                          <Badge
+                            variant={
+                              log.status === 'success'
+                                ? 'default'
+                                : log.status === 'error'
+                                  ? 'destructive'
+                                  : 'secondary'
+                            }
+                            className="text-[10px] h-5"
+                          >
+                            {log.status}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Exit: {log.exitCode ?? 'N/A'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock className="size-3" />
+                          {new Date(log.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                      {log.duration > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Duration: {log.duration}ms
+                        </p>
+                      )}
+                      {log.output && (
+                        <pre className="text-xs bg-muted/50 rounded p-2 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">
+                          {log.output}
+                        </pre>
+                      )}
+                      {log.error && (
+                        <pre className="text-xs bg-destructive/10 rounded p-2 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto text-destructive">
+                          {log.error}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Clock className="size-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No execution history</p>
+                  <p className="text-xs mt-1">
+                    Execute the script to see results here
+                  </p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        {/* Versions Tab */}
+        <TabsContent value="versions" className="flex-1 min-h-0 mt-0">
+          <ScrollArea className="h-full">
+            <div className="p-4">
+              {versionHistory.length > 0 ? (
+                <div className="space-y-3">
+                  {/* Current version indicator */}
+                  <div className="rounded-lg border-2 border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-900/20 p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Badge className="text-[10px] bg-teal-600 text-white border-0">
+                          Current
+                        </Badge>
+                        <span className="text-xs font-medium">v{selectedScript.version}</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(selectedScript.updatedAt).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Current working version</p>
+                  </div>
+
+                  {/* Version history */}
+                  {versionHistory.map((v) => (
+                    <div
+                      key={v.id}
+                      className={cn(
+                        'rounded-lg border p-3 space-y-2 transition-colors cursor-pointer',
+                        selectedVersion === v.id
+                          ? 'border-teal-300 dark:border-teal-700 bg-teal-50/30 dark:bg-teal-900/10'
+                          : 'hover:border-muted-foreground/20'
+                      )}
+                      onClick={() => setSelectedVersion(selectedVersion === v.id ? null : v.id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="text-[10px] h-5">
+                            v{v.version}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {v.message}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(v.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+
+                      {/* Expandable code view */}
+                      {selectedVersion === v.id && (
+                        <div className="mt-2 rounded-md overflow-hidden">
+                          <CodeHighlighter
+                            language={getHighlightLanguage(selectedScript.language)}
+                            code={v.code}
+                            showLineNumbers
+                            maxHeight="200px"
+                          />
+                          <div className="flex gap-2 mt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                try {
+                                  await navigator.clipboard.writeText(v.code)
+                                  toast.success('Version code copied')
+                                } catch {
+                                  toast.error('Failed to copy')
+                                }
+                              }}
+                            >
+                              <Copy className="size-3" />
+                              Copy Code
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const extension = selectedScript.language === 'chimerax' ? 'cxc' : 'py'
+                                const blob = new Blob([v.code], { type: 'text/plain' })
+                                const url = URL.createObjectURL(blob)
+                                const a = document.createElement('a')
+                                a.href = url
+                                a.download = `${selectedScript.name}_v${v.version}.${extension}`
+                                document.body.appendChild(a)
+                                a.click()
+                                document.body.removeChild(a)
+                                URL.revokeObjectURL(url)
+                                toast.success('Version exported')
+                              }}
+                            >
+                              <Download className="size-3" />
+                              Export
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Clock className="size-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No version history</p>
+                  <p className="text-xs mt-1">
+                    Versions are created when you edit a script
+                  </p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        {/* External Apps Tab */}
+        <TabsContent value="apps" className="flex-1 min-h-0 mt-0">
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-3">
+              {connectedApps.length > 0 ? (
+                connectedApps.map((app) => {
+                  const appInfo = APP_TYPE_INFO[app.type] || APP_TYPE_INFO['chimerax']
+                  const scriptApp = scriptApps.find((sa) => sa.appId === app.id)
+                  return (
+                    <div
+                      key={app.id}
+                      className="rounded-lg border p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{appInfo.icon}</span>
+                          <div>
+                            <p className="text-sm font-medium">{app.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {app.host}:{app.port}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge
+                          variant={
+                            app.status === 'connected'
+                              ? 'default'
+                              : app.status === 'error'
+                                ? 'destructive'
+                                : 'secondary'
+                          }
+                          className="text-[10px]"
+                        >
+                          {app.status}
+                        </Badge>
+                      </div>
+                      {scriptApp && (
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs bg-muted/50 rounded px-2 py-1 font-mono flex-1 truncate">
+                            {scriptApp.launcherCmd}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 shrink-0"
+                            onClick={() => {
+                              navigator.clipboard.writeText(scriptApp.launcherCmd)
+                              toast.success('Command copied')
+                            }}
+                            aria-label="Copy launcher command"
+                          >
+                            <Copy className="size-3" />
+                          </Button>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                        >
+                          <Download className="size-3" />
+                          Download Launcher
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                        >
+                          <ExternalLink className="size-3" />
+                          Open
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <ExternalLink className="size-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No connected apps</p>
+                  <p className="text-xs mt-1">
+                    Connect an external app to generate launcher scripts
+                  </p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+
+  // On mobile: full-screen Sheet
+  if (isMobile) {
+    return (
+      <Sheet open={detailPanelOpen} onOpenChange={(open) => {
+        if (!open) handleClose()
+      }}>
+        <SheetContent side="right" className="w-full sm:max-w-full p-0">
+          <SheetHeader>
+            <SheetTitle>{selectedScript?.name || 'Script Details'}</SheetTitle>
+            <SheetDescription className="sr-only">View script details and execution options</SheetDescription>
+          </SheetHeader>
+          {panelContent}
+        </SheetContent>
+      </Sheet>
+    )
+  }
+
+  // On desktop: side panel
+  return (
+    <AnimatePresence>
+      {detailPanelOpen && (
+        <>
+          {/* Overlay */}
+          <motion.div
+            key="detail-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-40 bg-black/20"
+            onClick={handleClose}
+          />
+          {/* Panel */}
+          <motion.div
+            key="detail-panel"
+            initial={{ x: 450 }}
+            animate={{ x: 0 }}
+            exit={{ x: 450 }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            className="fixed top-14 right-0 z-40 h-[calc(100vh-3.5rem-2.5rem)] w-[450px] border-l bg-background shadow-xl"
+          >
+            {panelContent}
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  )
+}

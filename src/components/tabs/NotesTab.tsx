@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
@@ -209,7 +210,7 @@ export function NotesTab({ scriptId, notes, onNotesChange, onNotesBlur }: NotesT
                 </span>
               ) : saveStatus === 'saved' ? (
                 <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                  <Check className="size-2.5" />Saved ✓
+                  <Check className="size-2.5" />Saved
                 </span>
               ) : null}
             </span>

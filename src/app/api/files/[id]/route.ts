@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 
-const UPLOAD_DIR = '/home/z/my-project/uploads';
+const UPLOAD_DIR = process.env.SCRIPT_MANAGER_UPLOAD_DIR || join(process.cwd(), 'uploads');
 
 // GET /api/files/[id] - Download a file by its stored name
 export async function GET(

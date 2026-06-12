@@ -1,236 +1,336 @@
 import { create } from 'zustand';
-import type { SelectedScriptData } from '@/types';
-
-// ─── Unique ID Generator ──────────────────────────────────────
-let _notifCounter = 0;
-function uniqueNotifId(): string {
-  return `${Date.now()}-${++_notifCounter}`;
-}
-
-// ─── localStorage Persistence Helpers ──────────────────────────────
-
-function loadFromStorage<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const stored = localStorage.getItem(`scripthub-${key}`);
-    return stored ? JSON.parse(stored) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function saveToStorage<T>(key: string, value: T): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(`scripthub-${key}`, JSON.stringify(value));
-  } catch {
-    // localStorage might be full or unavailable
-  }
-}
-
-// ─── Notification Store Interface ───────────────────────────────────
-
-export interface Notification {
-  id: string;
-  message: string;
-  type: 'success' | 'error' | 'info';
-  timestamp: number;
-}
-
-export type AccentTheme = 'emerald' | 'blue' | 'violet' | 'rose' | 'amber' | 'cyan';
-
-export const ACCENT_COLORS: Record<AccentTheme, { primary: string; light: string; dark: string; bg: string; ring: string; gradient: string }> = {
-  emerald: { primary: '#10b981', light: '#34d399', dark: '#059669', bg: 'rgba(16,185,129,0.1)', ring: 'rgba(16,185,129,0.3)', gradient: 'from-emerald-400 to-emerald-600' },
-  blue:    { primary: '#3b82f6', light: '#60a5fa', dark: '#2563eb', bg: 'rgba(59,130,246,0.1)', ring: 'rgba(59,130,246,0.3)', gradient: 'from-blue-400 to-blue-600' },
-  violet:  { primary: '#8b5cf6', light: '#a78bfa', dark: '#7c3aed', bg: 'rgba(139,92,246,0.1)', ring: 'rgba(139,92,246,0.3)', gradient: 'from-violet-400 to-violet-600' },
-  rose:    { primary: '#f43f5e', light: '#fb7185', dark: '#e11d48', bg: 'rgba(244,63,94,0.1)', ring: 'rgba(244,63,94,0.3)', gradient: 'from-rose-400 to-rose-600' },
-  amber:   { primary: '#f59e0b', light: '#fbbf24', dark: '#d97706', bg: 'rgba(245,158,11,0.1)', ring: 'rgba(245,158,11,0.3)', gradient: 'from-amber-400 to-amber-600' },
-  cyan:    { primary: '#06b6d4', light: '#22d3ee', dark: '#0891b2', bg: 'rgba(6,182,212,0.1)', ring: 'rgba(6,182,212,0.3)', gradient: 'from-cyan-400 to-cyan-600' },
-};
-
-// ─── Store Interface ──────────────────────────────────────────────
+import { persist } from 'zustand/middleware';
+import type { Script, ExecutionLog, ExternalApp, ScriptTemplate, FilterState, ViewMode } from '@/types';
+import { api } from '@/lib/api-client';
 
 interface ScriptStore {
-  selectedScriptId: string | null;
-  selectedScript: SelectedScriptData | null;
-  searchQuery: string;
-  selectedCategory: string;
-  viewMode: 'grid' | 'list' | 'graph';
+  // Data
+  scripts: Script[];
+  selectedScript: Script | null;
+  executionLogs: ExecutionLog[];
+  externalApps: ExternalApp[];
+  templates: ScriptTemplate[];
+
+  // UI State
+  filters: FilterState;
   sidebarOpen: boolean;
-  sidebarWidth: number;
-  favorites: string[];
-  recentScripts: string[];
-  sortBy: 'name' | 'date' | 'language' | 'category' | 'custom' | 'runs' | 'size' | 'recency' | 'health' | 'rating';
-  selectedForBatch: string[];
-  batchMode: boolean;
-  pageSize: 12 | 24 | 48;
-  selectedTag: string | null;
-  selectedSource: string | null;
-  selectedLanguages: string[];
-  pinnedScripts: string[];
-  customOrder: string[];
-  notifications: Notification[];
-  recentExecutions: Array<{ id: string; name: string; status: string; timestamp: number }>;
-  lastRunDurations: Record<string, number>;
-  lastRunStatuses: Record<string, 'success' | 'error' | 'running'>;
-  accentTheme: AccentTheme;
-  searchMode: 'name' | 'content' | 'all';
-  setSelectedScript: (id: string | null, script?: SelectedScriptData | null) => void;
-  setSearchQuery: (query: string) => void;
-  setSelectedCategory: (category: string) => void;
-  setViewMode: (mode: 'grid' | 'list' | 'graph') => void;
-  toggleSidebar: () => void;
-  setSidebarWidth: (width: number) => void;
-  toggleFavorite: (id: string) => void;
-  addRecent: (id: string) => void;
-  setSortBy: (sortBy: 'name' | 'date' | 'language' | 'category' | 'custom' | 'runs' | 'size' | 'recency' | 'health' | 'rating') => void;
-  setPageSize: (pageSize: 12 | 24 | 48) => void;
-  toggleBatchSelect: (id: string) => void;
-  clearBatchSelect: () => void;
-  setBatchMode: (mode: boolean) => void;
-  setSelectedTag: (tag: string | null) => void;
-  setSelectedSource: (source: string | null) => void;
-  setSelectedLanguages: (languages: string[]) => void;
-  toggleLanguageFilter: (language: string) => void;
-  clearAllFilters: () => void;
-  togglePin: (id: string) => void;
-  isPinned: (id: string) => boolean;
-  setCustomOrder: (order: string[]) => void;
-  pruneCustomOrder: (validIds: string[]) => void;
-  addNotification: (message: string, type?: 'success' | 'error' | 'info') => void;
-  clearNotifications: () => void;
-  addRecentExecution: (execution: { id: string; name: string; status: string; timestamp?: number }) => void;
-  setLastRunDuration: (id: string, duration: number) => void;
-  setLastRunStatus: (id: string, status: 'success' | 'error' | 'running') => void;
-  setAccentTheme: (theme: AccentTheme) => void;
-  setSearchMode: (mode: 'name' | 'content' | 'all') => void;
+  detailPanelOpen: boolean;
+  generatorOpen: boolean;
+  isLoading: boolean;
+  isExecuting: boolean;
+  executionOutput: string;
+  executionError: string;
+  error: string | null;
+
+  // Actions
+  loadScripts: () => Promise<void>;
+  retryLoad: () => Promise<void>;
+  loadExternalApps: () => Promise<void>;
+  loadTemplates: (appType?: string) => Promise<void>;
+  selectScript: (script: Script | null) => void;
+  createScript: (data: Partial<Script>) => Promise<Script>;
+  updateScript: (id: string, data: Partial<Script>) => Promise<Script>;
+  deleteScript: (id: string) => Promise<void>;
+  executeScript: (id: string, params?: Record<string, unknown>) => Promise<void>;
+  loadExecutions: (scriptId?: string) => Promise<void>;
+  toggleFavorite: (id: string) => Promise<void>;
+  togglePinned: (id: string) => Promise<void>;
+  setRating: (id: string, rating: number) => Promise<void>;
+  setFilters: (filters: Partial<FilterState>) => void;
+  setSidebarOpen: (open: boolean) => void;
+  setDetailPanelOpen: (open: boolean) => void;
+  setGeneratorOpen: (open: boolean) => void;
+  addExternalApp: (data: Partial<ExternalApp>) => Promise<ExternalApp>;
+  removeExternalApp: (id: string) => Promise<void>;
+  checkAppConnection: (id: string) => Promise<void>;
+  seedDatabase: () => Promise<void>;
+  clearError: () => void;
+
+  // Computed
+  filteredScripts: () => Script[];
+  categories: () => { name: string; count: number }[];
 }
 
-// ─── Store ────────────────────────────────────────────────────────
+const defaultFilters: FilterState = {
+  category: 'All',
+  search: '',
+  tags: [],
+  sortBy: 'updatedAt',
+  sortOrder: 'desc',
+  viewMode: 'grid',
+  language: '',
+};
 
-export const useScriptStore = create<ScriptStore>((set) => ({
-  selectedScriptId: null,
-  selectedScript: null,
-  searchQuery: '',
-  selectedCategory: 'All',
-  viewMode: loadFromStorage<'grid' | 'list' | 'graph'>('viewMode', 'grid'),
-  sidebarOpen: loadFromStorage<boolean>('sidebarOpen', true),
-  sidebarWidth: loadFromStorage<number>('sidebarWidth', 260),
-  favorites: loadFromStorage<string[]>('favorites', []),
-  recentScripts: loadFromStorage<string[]>('recent', []),
-  sortBy: loadFromStorage<'name' | 'date' | 'language' | 'category' | 'custom' | 'runs' | 'size' | 'recency' | 'health' | 'rating'>('sortBy', 'name'),
-  selectedForBatch: [],
-  batchMode: false,
-  pageSize: loadFromStorage<12 | 24 | 48>('pageSize', 12),
-  selectedTag: loadFromStorage<string | null>('selectedTag', null),
-  selectedSource: loadFromStorage<string | null>('selectedSource', null),
-  selectedLanguages: loadFromStorage<string[]>('selectedLanguages', []),
-  pinnedScripts: loadFromStorage<string[]>('pinned', []),
-  customOrder: loadFromStorage<string[]>('customOrder', []),
-  notifications: loadFromStorage<Notification[]>('notifications', []),
-  recentExecutions: loadFromStorage<Array<{ id: string; name: string; status: string; timestamp: number }>>('recentExecutions', []),
-  lastRunDurations: loadFromStorage<Record<string, number>>('lastRunDurations', {}),
-  lastRunStatuses: loadFromStorage<Record<string, 'success' | 'error' | 'running'>>('lastRunStatuses', {}),
-  accentTheme: loadFromStorage<AccentTheme>('accentTheme', 'emerald'),
-  searchMode: loadFromStorage<'name' | 'content' | 'all'>('searchMode', 'all'),
-  setSelectedScript: (id, script) => set({ selectedScriptId: id, selectedScript: script ?? null }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
-  setSelectedCategory: (category) => set({ selectedCategory: category }),
-  setViewMode: (mode) => { set({ viewMode: mode }); saveToStorage('viewMode', mode); },
-  toggleSidebar: () => set((state) => { const next = !state.sidebarOpen; saveToStorage('sidebarOpen', next); return { sidebarOpen: next }; }),
-  setSidebarWidth: (width) => { const clamped = Math.max(200, Math.min(480, width)); set({ sidebarWidth: clamped }); saveToStorage('sidebarWidth', clamped); },
-  toggleFavorite: (id) =>
-    set((state) => {
-      const next = state.favorites.includes(id)
-        ? state.favorites.filter((fid) => fid !== id)
-        : [...state.favorites, id];
-      saveToStorage('favorites', next);
-      return { favorites: next };
+export const useScriptStore = create<ScriptStore>()(
+  persist(
+    (set, get) => ({
+      scripts: [],
+      selectedScript: null,
+      executionLogs: [],
+      externalApps: [],
+      templates: [],
+      filters: defaultFilters,
+      sidebarOpen: true,
+      detailPanelOpen: false,
+      generatorOpen: false,
+      isLoading: false,
+      isExecuting: false,
+      executionOutput: '',
+      executionError: '',
+      error: null,
+
+      loadScripts: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          const scripts = await api.getScripts(get().filters);
+          set({ scripts, isLoading: false, error: null });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to load scripts';
+          console.error('Failed to load scripts:', error);
+          set({ isLoading: false, error: message });
+        }
+      },
+
+      retryLoad: async () => {
+        await get().loadScripts();
+      },
+
+      clearError: () => {
+        set({ error: null });
+      },
+
+      loadExternalApps: async () => {
+        try {
+          const apps = await api.getExternalApps();
+          set({ externalApps: apps });
+        } catch (error) {
+          console.error('Failed to load external apps:', error);
+        }
+      },
+
+      loadTemplates: async (appType?: string) => {
+        try {
+          const templates = await api.getTemplates(appType);
+          set({ templates });
+        } catch (error) {
+          console.error('Failed to load templates:', error);
+        }
+      },
+
+      selectScript: (script) => {
+        set({
+          selectedScript: script,
+          detailPanelOpen: !!script,
+          // Isolate execution output per script: clear stale output when switching scripts
+          executionOutput: '',
+          executionError: '',
+          isExecuting: false,
+        });
+      },
+
+      createScript: async (data) => {
+        const script = await api.createScript(data);
+        set((state) => ({ scripts: [...state.scripts, script] }));
+        return script;
+      },
+
+      updateScript: async (id, data) => {
+        const script = await api.updateScript(id, data);
+        set((state) => ({
+          scripts: state.scripts.map((s) => (s.id === id ? { ...s, ...script } : s)),
+          selectedScript: state.selectedScript?.id === id ? { ...state.selectedScript, ...script } : state.selectedScript,
+        }));
+        return script;
+      },
+
+      deleteScript: async (id) => {
+        await api.deleteScript(id);
+        set((state) => ({
+          scripts: state.scripts.filter((s) => s.id !== id),
+          selectedScript: state.selectedScript?.id === id ? null : state.selectedScript,
+          detailPanelOpen: state.selectedScript?.id === id ? false : state.detailPanelOpen,
+        }));
+      },
+
+      executeScript: async (id, params) => {
+        set({ isExecuting: true, executionOutput: '', executionError: '' });
+        try {
+          const log = await api.executeScript(id, params);
+          set((state) => ({
+            isExecuting: false,
+            executionOutput: log.output,
+            executionError: log.error,
+            scripts: state.scripts.map((s) =>
+              s.id === id ? { ...s, runCount: s.runCount + 1 } : s
+            ),
+          }));
+        } catch (error) {
+          set({ isExecuting: false, executionError: String(error) });
+        }
+      },
+
+      loadExecutions: async (scriptId) => {
+        try {
+          const logs = await api.getExecutions(scriptId);
+          set({ executionLogs: logs });
+        } catch (error) {
+          console.error('Failed to load executions:', error);
+        }
+      },
+
+      toggleFavorite: async (id) => {
+        const script = get().scripts.find((s) => s.id === id);
+        if (!script) return;
+        await api.updateScript(id, { isFavorite: !script.isFavorite });
+        set((state) => ({
+          scripts: state.scripts.map((s) =>
+            s.id === id ? { ...s, isFavorite: !s.isFavorite } : s
+          ),
+          selectedScript: state.selectedScript?.id === id
+            ? { ...state.selectedScript, isFavorite: !state.selectedScript.isFavorite }
+            : state.selectedScript,
+        }));
+      },
+
+      togglePinned: async (id) => {
+        const script = get().scripts.find((s) => s.id === id);
+        if (!script) return;
+        await api.updateScript(id, { isPinned: !script.isPinned });
+        set((state) => ({
+          scripts: state.scripts.map((s) =>
+            s.id === id ? { ...s, isPinned: !s.isPinned } : s
+          ),
+          selectedScript: state.selectedScript?.id === id
+            ? { ...state.selectedScript, isPinned: !state.selectedScript.isPinned }
+            : state.selectedScript,
+        }));
+      },
+
+      setRating: async (id, rating) => {
+        await api.updateScript(id, { rating });
+        set((state) => ({
+          scripts: state.scripts.map((s) =>
+            s.id === id ? { ...s, rating } : s
+          ),
+          selectedScript: state.selectedScript?.id === id
+            ? { ...state.selectedScript, rating }
+            : state.selectedScript,
+        }));
+      },
+
+      setFilters: (filters) => {
+        set((state) => ({ filters: { ...state.filters, ...filters } }));
+      },
+
+      setSidebarOpen: (open) => set({ sidebarOpen: open }),
+      setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
+      setGeneratorOpen: (open) => set({ generatorOpen: open }),
+
+      addExternalApp: async (data) => {
+        const app = await api.createExternalApp(data);
+        set((state) => ({ externalApps: [...state.externalApps, app] }));
+        return app;
+      },
+
+      removeExternalApp: async (id) => {
+        await api.deleteExternalApp(id);
+        set((state) => ({ externalApps: state.externalApps.filter((a) => a.id !== id) }));
+      },
+
+      checkAppConnection: async (id) => {
+        try {
+          const result = await api.checkAppConnection(id);
+          set((state) => ({
+            externalApps: state.externalApps.map((a) =>
+              a.id === id ? { ...a, status: result.status as ExternalApp['status'] } : a
+            ),
+          }));
+        } catch {
+          set((state) => ({
+            externalApps: state.externalApps.map((a) =>
+              a.id === id ? { ...a, status: 'error' as const } : a
+            ),
+          }));
+        }
+      },
+
+      seedDatabase: async () => {
+        await api.seedDatabase();
+        await get().loadScripts();
+      },
+
+      filteredScripts: () => {
+        const { scripts, filters } = get();
+        let result = [...scripts];
+
+        if (filters.category && filters.category !== 'All') {
+          result = result.filter((s) => s.category === filters.category);
+        }
+        if (filters.search) {
+          const search = filters.search.toLowerCase();
+          result = result.filter(
+            (s) =>
+              s.name.toLowerCase().includes(search) ||
+              s.description.toLowerCase().includes(search) ||
+              s.code.toLowerCase().includes(search)
+          );
+        }
+        if (filters.language) {
+          result = result.filter((s) => s.language === filters.language);
+        }
+        if (filters.tags.length > 0) {
+          result = result.filter((s) =>
+            filters.tags.every((tag) => s.tags.includes(tag))
+          );
+        }
+
+        // Sort
+        const { sortBy, sortOrder } = filters;
+        result.sort((a, b) => {
+          let comparison = 0;
+          switch (sortBy) {
+            case 'name':
+              comparison = a.name.localeCompare(b.name);
+              break;
+            case 'createdAt':
+              comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+              break;
+            case 'updatedAt':
+              comparison = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+              break;
+            case 'runCount':
+              comparison = a.runCount - b.runCount;
+              break;
+            case 'rating':
+              comparison = a.rating - b.rating;
+              break;
+          }
+          return sortOrder === 'desc' ? -comparison : comparison;
+        });
+
+        // Pinned first
+        result.sort((a, b) => (a.isPinned === b.isPinned ? 0 : a.isPinned ? -1 : 1));
+
+        return result;
+      },
+
+      categories: () => {
+        const { scripts } = get();
+        const catMap = new Map<string, number>();
+        scripts.forEach((s) => {
+          catMap.set(s.category, (catMap.get(s.category) || 0) + 1);
+        });
+        return Array.from(catMap.entries())
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count);
+      },
     }),
-  addRecent: (id) =>
-    set((state) => {
-      const filtered = state.recentScripts.filter((rid) => rid !== id);
-      const next = [id, ...filtered].slice(0, 5);
-      saveToStorage('recent', next);
-      return { recentScripts: next };
-    }),
-  setSortBy: (sortBy) => { set({ sortBy }); saveToStorage('sortBy', sortBy); },
-  setPageSize: (pageSize) => { set({ pageSize }); saveToStorage('pageSize', pageSize); },
-  setSelectedTag: (selectedTag) => { set({ selectedTag }); saveToStorage('selectedTag', selectedTag); },
-  setSelectedSource: (selectedSource) => { set({ selectedSource }); saveToStorage('selectedSource', selectedSource); },
-  setSelectedLanguages: (selectedLanguages) => { set({ selectedLanguages }); saveToStorage('selectedLanguages', selectedLanguages); },
-  toggleLanguageFilter: (language) => set((state) => {
-    const next = state.selectedLanguages.includes(language)
-      ? state.selectedLanguages.filter(l => l !== language)
-      : [...state.selectedLanguages, language];
-    saveToStorage('selectedLanguages', next);
-    return { selectedLanguages: next };
-  }),
-  clearAllFilters: () => {
-    set({ searchQuery: '', selectedCategory: 'All', selectedTag: null, selectedSource: null, selectedLanguages: [] });
-    saveToStorage('selectedTag', null);
-    saveToStorage('selectedSource', null);
-    saveToStorage('selectedLanguages', []);
-  },
-  togglePin: (id) =>
-    set((state) => {
-      const next = state.pinnedScripts.includes(id)
-        ? state.pinnedScripts.filter((sid) => sid !== id)
-        : [...state.pinnedScripts, id];
-      saveToStorage('pinned', next);
-      return { pinnedScripts: next };
-    }),
-  isPinned: (id: string): boolean => useScriptStore.getState().pinnedScripts.includes(id),
-  setCustomOrder: (customOrder) => {
-    set({ customOrder, sortBy: 'custom' });
-    saveToStorage('customOrder', customOrder);
-  },
-  pruneCustomOrder: (validIds: string[]) => {
-    const current = useScriptStore.getState().customOrder;
-    const pruned = current.filter((id: string) => validIds.includes(id));
-    set({ customOrder: pruned });
-    saveToStorage('customOrder', pruned);
-  },
-  toggleBatchSelect: (id) =>
-    set((state) => ({
-      selectedForBatch: state.selectedForBatch.includes(id)
-        ? state.selectedForBatch.filter((sid) => sid !== id)
-        : [...state.selectedForBatch, id],
-    })),
-  clearBatchSelect: () => set({ selectedForBatch: [] }),
-  setBatchMode: (mode) => { set({ batchMode: mode }); if (!mode) set({ selectedForBatch: [] }); },
-  addNotification: (message, type = 'info') =>
-    set((state) => {
-      const next: Notification[] = [
-        { id: uniqueNotifId(), message, type, timestamp: Date.now() },
-        ...state.notifications,
-      ].slice(0, 50);
-      saveToStorage('notifications', next);
-      return { notifications: next };
-    }),
-  clearNotifications: () => {
-    set({ notifications: [] });
-    saveToStorage('notifications', []);
-  },
-  addRecentExecution: (execution) =>
-    set((state) => {
-      const enriched = { ...execution, timestamp: execution.timestamp ?? Date.now() } as { id: string; name: string; status: string; timestamp: number };
-      const next = [enriched, ...state.recentExecutions].slice(0, 5);
-      saveToStorage('recentExecutions', next);
-      return { recentExecutions: next };
-    }),
-  setLastRunDuration: (id, duration) =>
-    set((state) => {
-      const next = { ...state.lastRunDurations, [id]: duration };
-      saveToStorage('lastRunDurations', next);
-      return { lastRunDurations: next };
-    }),
-  setLastRunStatus: (id, status) =>
-    set((state) => {
-      const next = { ...state.lastRunStatuses, [id]: status };
-      saveToStorage('lastRunStatuses', next);
-      return { lastRunStatuses: next };
-    }),
-  setAccentTheme: (theme) => { set({ accentTheme: theme }); saveToStorage('accentTheme', theme); },
-  setSearchMode: (mode) => { set({ searchMode: mode }); saveToStorage('searchMode', mode); },
-}));
+    {
+      name: 'scripthub-store',
+      partialize: (state) => ({
+        filters: state.filters,
+        sidebarOpen: state.sidebarOpen,
+      }),
+    }
+  )
+);

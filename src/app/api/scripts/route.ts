@@ -52,7 +52,39 @@ export async function GET(request: NextRequest) {
 
     const scripts = await db.script.findMany(queryOptions);
 
-    return NextResponse.json({ scripts });
+    // Normalize Prisma shape -> frontend Script shape:
+    // - content -> code
+    // - params / inputFiles / outputFiles / tags stored as JSON strings -> parsed arrays
+    // - missing Script fields get sensible defaults
+    const safeParse = (s: string | null | undefined, fallback: unknown = []) => {
+      if (s == null || s === '') return fallback;
+      try { return JSON.parse(s); } catch { return fallback; }
+    };
+    const normalized = (scripts as any[]).map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description ?? '',
+      code: s.content ?? '',
+      language: s.language ?? 'python',
+      category: s.category ?? 'Uncategorized',
+      filename: s.filename,
+      source: s.source ?? 'manual',
+      sourceUrl: s.sourceUrl ?? undefined,
+      params: safeParse(s.params, []),
+      inputFiles: safeParse(s.inputFiles, []),
+      outputFiles: safeParse(s.outputFiles, []),
+      tags: safeParse(s.tags, []),
+      isFavorite: false,
+      isPinned: false,
+      rating: s.rating ?? 0,
+      version: 1,
+      runCount: s._count?.executions ?? 0,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      apps: s.externalApps ?? [],
+    }));
+
+    return NextResponse.json({ scripts: normalized });
   } catch (error) {
     console.error('Error fetching scripts:', error);
     return NextResponse.json(
@@ -66,11 +98,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description, filename, content, category, language, source, sourceUrl, params, inputFiles, outputFiles, tags, rating } = body;
+    const { name, description, filename, content, code, category, language, source, sourceUrl, params, inputFiles, outputFiles, tags, rating } = body;
 
-    if (!name || !filename || !content) {
+    if (!name || !filename || (!content && !code)) {
       return NextResponse.json(
-        { error: 'name, filename, and content are required' },
+        { error: 'name, filename, and content/code are required' },
         { status: 400 }
       );
     }
@@ -88,20 +120,48 @@ export async function POST(request: NextRequest) {
         name,
         description: description || '',
         filename,
-        content,
+        content: content || code,
         category: category || 'Uncategorized',
         language: language || 'python',
         source: source || 'manual',
         sourceUrl: sourceUrl || null,
-        params: params || '[]',
-        inputFiles: inputFiles || '[]',
-        outputFiles: outputFiles || '[]',
-        tags: tags || '[]',
+        params: typeof params === 'string' ? params : (params ? JSON.stringify(params) : '[]'),
+        inputFiles: typeof inputFiles === 'string' ? inputFiles : (inputFiles ? JSON.stringify(inputFiles) : '[]'),
+        outputFiles: typeof outputFiles === 'string' ? outputFiles : (outputFiles ? JSON.stringify(outputFiles) : '[]'),
+        tags: typeof tags === 'string' ? tags : (tags ? JSON.stringify(tags) : '[]'),
         rating: rating || null,
       },
     });
 
-    return NextResponse.json({ script }, { status: 201 });
+    // Normalize response shape (code, tags, params, etc.) to match frontend Script type
+    const safeParse2 = (s: string | null | undefined, fallback: unknown = []) => {
+      if (s == null || s === '') return fallback;
+      try { return JSON.parse(s); } catch { return fallback; }
+    };
+    const normalizedScript = {
+      id: script.id,
+      name: script.name,
+      description: script.description ?? '',
+      code: script.content ?? '',
+      language: script.language ?? 'python',
+      category: script.category ?? 'Uncategorized',
+      filename: script.filename,
+      source: script.source ?? 'manual',
+      sourceUrl: script.sourceUrl ?? undefined,
+      params: safeParse2(script.params, []),
+      inputFiles: safeParse2(script.inputFiles, []),
+      outputFiles: safeParse2(script.outputFiles, []),
+      tags: safeParse2(script.tags, []),
+      isFavorite: false,
+      isPinned: false,
+      rating: script.rating ?? 0,
+      version: 1,
+      runCount: 0,
+      createdAt: script.createdAt,
+      updatedAt: script.updatedAt,
+    };
+
+    return NextResponse.json({ script: normalizedScript }, { status: 201 });
   } catch (error: any) {
     if (error?.code === 'P2002') {
       return NextResponse.json({ error: 'A script with this filename already exists' }, { status: 409 });

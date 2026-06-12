@@ -5,8 +5,8 @@ import { writeFile, mkdir, unlink, access, readdir, stat, copyFile } from 'fs/pr
 import { join, resolve } from 'path';
 import { randomUUID } from 'crypto';
 
-const TMP_DIR = '/tmp/script-manager';
-const UPLOAD_DIR = '/home/z/my-project/uploads';
+const TMP_DIR = process.env.SCRIPT_MANAGER_TMP_DIR || '/tmp/script-manager';
+const UPLOAD_DIR = process.env.SCRIPT_MANAGER_UPLOAD_DIR || join(process.cwd(), 'uploads');
 
 // Helper: check if path exists (async-safe replacement for existsSync)
 async function pathExists(p: string): Promise<boolean> {
@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
     // Parse positional arg count from sys.argv usage
     const argvMatches = scriptContent.match(/sys\.argv\[(\d+)\]/g) || [];
     const maxArgIndex = argvMatches.length > 0
-      ? Math.max(...argvMatches.map(m => parseInt(m.match(/\d+/)?.[0] || '0')))
+      ? Math.max(...argvMatches.map((m: string) => parseInt(m.match(/\d+/)?.[0] || '0')))
       : 0;
 
     // Check for argparse usage
@@ -377,7 +377,17 @@ export async function POST(request: NextRequest) {
     await cleanupTempFiles(scriptFile, paramsFile, execInputFiles);
 
     return NextResponse.json({
-      execution: executionLog,
+      execution: {
+        id: executionLog.id,
+        scriptId: executionLog.scriptId,
+        params: executionLog.params,
+        output: executionLog.output,
+        error: executionLog.error,
+        status: executionLog.status,
+        duration: executionLog.duration,
+        exitCode: executionLog.exitCode,
+        createdAt: executionLog.createdAt,
+      },
       output: result.output,
       error: result.error,
       exitCode: result.exitCode,

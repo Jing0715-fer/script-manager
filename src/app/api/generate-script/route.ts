@@ -122,7 +122,7 @@ Respond with ONLY the script content, no markdown formatting or explanation.`;
 
     // If an external app association exists, update the auto script
     if (app) {
-      const existingLink = script.externalApps.find(ea => ea.appId === app!.id);
+      const existingLink = script.externalApps.find((ea: { appId: string }) => ea.appId === app!.id);
       if (existingLink) {
         await db.scriptExternalApp.update({
           where: { id: existingLink.id },
