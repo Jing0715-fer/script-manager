@@ -201,6 +201,13 @@ export default function ScriptDetailPanel() {
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
   const [copied, setCopied] = useState(false)
   const [activeTab, setActiveTab] = useState('code')
+
+  // Name editing state
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [savingName, setSavingName] = useState(false)
+
+  // Description editing state
   const [editingDescription, setEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [savingDescription, setSavingDescription] = useState(false)
@@ -254,13 +261,45 @@ export default function ScriptDetailPanel() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Reset description edit state when the selected script changes
+  // Reset edit states when the selected script changes
   useEffect(() => {
     if (selectedScript) {
+      setEditingName(false)
+      setNameDraft(selectedScript.name || '')
       setEditingDescription(false)
       setDescriptionDraft(selectedScript.description || '')
     }
   }, [selectedScript?.id])
+
+  const handleStartEditName = () => {
+    if (!selectedScript) return
+    setNameDraft(selectedScript.name)
+    setEditingName(true)
+  }
+
+  const handleCancelEditName = () => {
+    setEditingName(false)
+    setNameDraft(selectedScript?.name || '')
+  }
+
+  const handleSaveName = async () => {
+    if (!selectedScript) return
+    const next = nameDraft.trim()
+    if (!next || next === selectedScript.name) {
+      setEditingName(false)
+      return
+    }
+    setSavingName(true)
+    try {
+      await updateScript(selectedScript.id, { name: next })
+      toast.success('Name updated')
+      setEditingName(false)
+    } catch (e) {
+      toast.error(`Failed to update name: ${(e as Error).message}`)
+    } finally {
+      setSavingName(false)
+    }
+  }
 
   const handleStartEditDescription = () => {
     if (!selectedScript) return
@@ -363,9 +402,66 @@ export default function ScriptDetailPanel() {
       <div className="p-4 border-b shrink-0">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex-1 min-w-0">
-            <h2 className="sr-only">
-              {selectedScript.name}
-            </h2>
+            {/* Title — visible and editable */}
+            {editingName ? (
+              <div className="flex items-center gap-2 mb-2">
+                <Input
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  className="text-base font-semibold h-8 px-2 py-0"
+                  disabled={savingName}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      handleCancelEditName()
+                    } else if (e.key === 'Enter') {
+                      e.preventDefault()
+                      handleSaveName()
+                    }
+                  }}
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSaveName}
+                  disabled={savingName}
+                  className="h-7 text-xs shrink-0"
+                >
+                  {savingName ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="size-3" />
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleCancelEditName}
+                  disabled={savingName}
+                  className="h-7 text-xs shrink-0"
+                >
+                  <X className="size-3" />
+                </Button>
+              </div>
+            ) : (
+              <div className="group flex items-center gap-1.5 mb-2">
+                <h2 className="text-base font-semibold tracking-tight truncate">
+                  {selectedScript.name}
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleStartEditName}
+                  className="size-5 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                  aria-label="Edit name"
+                  title="Edit name"
+                >
+                  <Pencil className="size-3" />
+                </Button>
+              </div>
+            )}
+
+            {/* Description — styled card */}
             {editingDescription ? (
               <div className="space-y-2">
                 <Textarea
@@ -415,13 +511,11 @@ export default function ScriptDetailPanel() {
                 </div>
               </div>
             ) : (
-              <div className="group flex items-start gap-2">
+              <div className="group relative flex items-start gap-2 rounded-lg bg-muted/30 px-3 py-2 border border-border/40">
                 <p
                   className={cn(
-                    'flex-1 text-sm text-muted-foreground whitespace-pre-wrap break-words',
-                    selectedScript.description
-                      ? ''
-                      : 'italic text-muted-foreground/60'
+                    'flex-1 text-sm leading-relaxed text-muted-foreground/90 whitespace-pre-wrap break-words',
+                    !selectedScript.description && 'italic text-muted-foreground/50 leading-snug'
                   )}
                 >
                   {selectedScript.description || 'No description yet.'}
@@ -430,7 +524,7 @@ export default function ScriptDetailPanel() {
                   variant="ghost"
                   size="icon"
                   onClick={handleStartEditDescription}
-                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity -mt-0.5"
                   aria-label="Edit description"
                   title="Edit description"
                 >
