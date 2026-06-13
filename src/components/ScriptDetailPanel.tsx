@@ -21,6 +21,7 @@ import {
   FileText,
   Package,
   Info,
+  Trash2,
 } from 'lucide-react'
 import CodeHighlighter from '@/components/CodeHighlighter'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
@@ -189,6 +190,7 @@ export default function ScriptDetailPanel() {
     toggleFavorite,
     togglePinned,
     executeScript,
+    deleteExecution,
     isExecuting,
     executionOutput,
     executionError,
@@ -214,8 +216,9 @@ export default function ScriptDetailPanel() {
   const [editingDescription, setEditingDescription] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [savingDescription, setSavingDescription] = useState(false)
-  const [versionHistory, setVersionHistory] = useState<Array<{ id: string; version: number; code: string; message: string; createdAt: string }>>([])
-  const [selectedVersion, setSelectedVersion] = useState<string | null>(null)
+  const [versionHistory, setVersionHistory] = useState<Array<{ id: string; version: number; code: string; message: string; createdAt: string }>>([]);
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+  const [lastResultFiles, setLastResultFiles] = useState<Array<{ name: string; path: string; size: number }>>([]);
 
   // Reset paramValues when selectedScript changes (React recommended pattern)
   // Using useState to track previous id so setState only runs when id actually changes
@@ -247,14 +250,15 @@ export default function ScriptDetailPanel() {
   }
 
   const handleExecute = async () => {
-    if (!selectedScript) return
+    if (!selectedScript) return;
     try {
-      await executeScript(selectedScript.id, paramValues)
-      toast.success('Script executed successfully')
+      const result = await executeScript(selectedScript.id, paramValues);
+      setLastResultFiles(result.resultFiles || []);
+      toast.success('Script executed successfully');
     } catch {
-      toast.error('Script execution failed')
+      toast.error('Script execution failed');
     }
-  }
+  };
 
   const handleCopy = async () => {
     if (!selectedScript) return
@@ -464,77 +468,6 @@ export default function ScriptDetailPanel() {
               </div>
             )}
 
-            {/* Description — styled card */}
-            {editingDescription ? (
-              <div className="space-y-2">
-                <Textarea
-                  value={descriptionDraft}
-                  onChange={(e) => setDescriptionDraft(e.target.value)}
-                  placeholder="Add a description for this script…"
-                  className="min-h-[80px] text-sm resize-y"
-                  disabled={savingDescription}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    // Esc cancels, Cmd/Ctrl+Enter saves
-                    if (e.key === 'Escape') {
-                      e.preventDefault()
-                      handleCancelEditDescription()
-                    } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                      e.preventDefault()
-                      handleSaveDescription()
-                    }
-                  }}
-                />
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    onClick={handleSaveDescription}
-                    disabled={savingDescription}
-                    className="h-7 text-xs"
-                  >
-                    {savingDescription ? (
-                      <Loader2 className="size-3 mr-1 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="size-3 mr-1" />
-                    )}
-                    Save
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleCancelEditDescription}
-                    disabled={savingDescription}
-                    className="h-7 text-xs"
-                  >
-                    Cancel
-                  </Button>
-                  <span className="text-[10px] text-muted-foreground ml-auto">
-                    ⌘/Ctrl+Enter to save · Esc to cancel
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="group relative flex items-start gap-2 rounded-lg bg-muted/30 px-3 py-2 border border-border/40">
-                <p
-                  className={cn(
-                    'flex-1 text-sm leading-relaxed text-muted-foreground/90 whitespace-pre-wrap break-words',
-                    !selectedScript.description && 'italic text-muted-foreground/50 leading-snug'
-                  )}
-                >
-                  {selectedScript.description || 'No description yet.'}
-                </p>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleStartEditDescription}
-                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity -mt-0.5"
-                  aria-label="Edit description"
-                  title="Edit description"
-                >
-                  <Pencil className="size-3" />
-                </Button>
-              </div>
-            )}
           </div>
           <Button
             variant="ghost"
@@ -883,14 +816,7 @@ export default function ScriptDetailPanel() {
                                     </p>
                                   )}
                                 </div>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-7 shrink-0"
-                                  aria-label={`Download ${file.name}`}
-                                >
-                                  <Download className="size-3.5 text-muted-foreground" />
-                                </Button>
+                                <div />
                               </div>
                             )
                           )}
@@ -1108,6 +1034,36 @@ export default function ScriptDetailPanel() {
                     )}
                   </div>
                 )}
+                {lastResultFiles.length > 0 && (
+                  <div className="space-y-2">
+                    {lastResultFiles.map((file, fi) => (
+                      <div key={fi} className="flex items-center gap-3 rounded-lg border bg-card/50 p-2.5">
+                        <FileText className="size-4 text-sky-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium truncate">{file.name}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {file.size < 1024 ? `${file.size} B` : file.size < 1048576 ? `${(file.size / 1024).toFixed(1)} KB` : `${(file.size / 1048576).toFixed(1)} MB`}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0"
+                          onClick={() => {
+                            const a = document.createElement('a');
+                            a.href = `/api/files/download?path=${encodeURIComponent(file.path)}`;
+                            a.download = file.name;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                          }}
+                        >
+                          <Download className="size-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </ScrollArea>
@@ -1146,12 +1102,41 @@ export default function ScriptDetailPanel() {
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Clock className="size-3" />
                           {new Date(log.createdAt).toLocaleString()}
+                          <button
+                            onClick={() => deleteExecution(log.id)}
+                            className="ml-1 p-0.5 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            title="Delete this run"
+                          >
+                            <Trash2 className="size-3" />
+                          </button>
                         </div>
                       </div>
                       {log.duration > 0 && (
                         <p className="text-xs text-muted-foreground">
                           Duration: {log.duration}ms
                         </p>
+                      )}
+                      {log.resultFiles && log.resultFiles.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {log.resultFiles.map((file, fi) => (
+                            <button
+                              key={fi}
+                              onClick={() => {
+                                const a = document.createElement('a');
+                                a.href = `/api/files/download?path=${encodeURIComponent(file.path)}`;
+                                a.download = file.name;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 text-[10px] text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors"
+                              title={`${file.name} (${file.size < 1024 ? `${file.size} B` : `${(file.size / 1024).toFixed(1)} KB`})`}
+                            >
+                              <Download className="size-2.5" />
+                              <span className="max-w-[80px] truncate">{file.name}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                       {log.output && (
                         <pre className="text-xs bg-muted/50 rounded p-2 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto">

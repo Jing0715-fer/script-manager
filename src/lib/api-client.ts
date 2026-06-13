@@ -46,7 +46,7 @@ export const api = {
   }),
 
   // Execution
-  executeScript: (id: string, params?: Record<string, unknown>, inputFiles?: Record<string, string>) => request<ExecutionLog>('/execute', {
+  executeScript: (id: string, params?: Record<string, unknown>, inputFiles?: Record<string, string>) => request<ExecutionLog & { resultFiles: Array<{ name: string; path: string; size: number }> }>('/execute', {
     method: 'POST',
     body: JSON.stringify({ id, params: params || {}, inputFiles: inputFiles || {} }),
   }),
@@ -56,6 +56,8 @@ export const api = {
     if (scriptId) params.set('scriptId', scriptId);
     return request<ExecutionLog[]>(`/executions?${params.toString()}`);
   },
+
+  deleteExecution: (id: string) => request<void>(`/executions?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // External Apps
   getExternalApps: async () => {

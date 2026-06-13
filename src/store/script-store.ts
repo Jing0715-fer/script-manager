@@ -20,6 +20,7 @@ interface ScriptStore {
   isExecuting: boolean;
   executionOutput: string;
   executionError: string;
+  lastResultFiles: Array<{ name: string; path: string; size: number }>;
   error: string | null;
 
   // Actions
@@ -31,8 +32,9 @@ interface ScriptStore {
   createScript: (data: Partial<Script>) => Promise<Script>;
   updateScript: (id: string, data: Partial<Script>) => Promise<Script>;
   deleteScript: (id: string) => Promise<void>;
-  executeScript: (id: string, params?: Record<string, unknown>) => Promise<void>;
+  executeScript: (id: string, params?: Record<string, unknown>) => Promise<{ output: string; error: string; resultFiles: Array<{ name: string; path: string; size: number }> }>;
   loadExecutions: (scriptId?: string) => Promise<void>;
+  deleteExecution: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   togglePinned: (id: string) => Promise<void>;
   setRating: (id: string, rating: number) => Promise<void>;
@@ -77,6 +79,7 @@ export const useScriptStore = create<ScriptStore>()(
       isExecuting: false,
       executionOutput: '',
       executionError: '',
+      lastResultFiles: [],
       error: null,
 
       loadScripts: async () => {
@@ -160,12 +163,15 @@ export const useScriptStore = create<ScriptStore>()(
             isExecuting: false,
             executionOutput: log.output,
             executionError: log.error,
+            lastResultFiles: log.resultFiles || [],
             scripts: state.scripts.map((s) =>
               s.id === id ? { ...s, runCount: s.runCount + 1 } : s
             ),
           }));
+          return log;
         } catch (error) {
           set({ isExecuting: false, executionError: String(error) });
+          throw error;
         }
       },
 
@@ -175,6 +181,19 @@ export const useScriptStore = create<ScriptStore>()(
           set({ executionLogs: logs });
         } catch (error) {
           console.error('Failed to load executions:', error);
+        }
+      },
+
+      deleteExecution: async (id) => {
+        try {
+          await api.deleteExecution(id);
+          set((state) => ({
+            executionLogs: state.executionLogs.filter((e) => e.id !== id),
+          }));
+          await get().loadScripts();
+        } catch (error) {
+          console.error('Failed to delete execution:', error);
+          throw error;
         }
       },
 

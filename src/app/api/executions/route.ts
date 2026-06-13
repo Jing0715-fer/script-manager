@@ -1,5 +1,38 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { unlink } from 'fs/promises';
+import { join } from 'path';
+
+const UPLOAD_DIR = process.env.SCRIPT_MANAGER_UPLOAD_DIR || join(process.cwd(), 'uploads');
+
+// DELETE /api/executions - Delete a single execution log and its result files
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+    const execution = await db.executionLog.findUnique({ where: { id }, select: { resultFiles: true } });
+    if (!execution) {
+      return NextResponse.json({ error: 'Execution not found' }, { status: 404 });
+    }
+    // Cleanup result files on disk
+    if (execution.resultFiles) {
+      try {
+        const files = JSON.parse(execution.resultFiles);
+        for (const f of files) {
+          if (f.path) await unlink(join(UPLOAD_DIR, f.path)).catch(() => {});
+        }
+      } catch { /* ignore */ }
+    }
+    await db.executionLog.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting execution:', error);
+    return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
+  }
+}
 
 // GET /api/executions - Full execution history API with stats, daily trend, and top scripts
 export async function GET(request: NextRequest) {

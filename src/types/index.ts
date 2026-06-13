@@ -43,6 +43,7 @@ export interface ExecutionLog {
   exitCode: number | null;
   duration: number;
   status: 'pending' | 'running' | 'success' | 'error' | 'timeout';
+  resultFiles?: Array<{ name: string; path: string; size: number }>;
   createdAt: string;
 }
 
