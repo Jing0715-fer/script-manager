@@ -1,541 +1,293 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
+import { useState } from 'react'
+import { Plus, Loader2 } from 'lucide-react'
 import {
-  Plus, Loader2, Code2, Globe, FileText, Database, Server, Clock,
-} from 'lucide-react';
-import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from '@/components/ui/dialog';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import { SCRIPT_CATEGORIES } from '@/lib/shared-constants';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useScriptStore } from '@/store/script-store'
+import { toast } from 'sonner'
 
-const categories = [...SCRIPT_CATEGORIES];
-
-const languages = [
-  { value: 'python', label: 'Python', ext: '.py' },
-  { value: 'bash', label: 'Bash', ext: '.sh' },
-  { value: 'javascript', label: 'JavaScript', ext: '.js' },
-  { value: 'typescript', label: 'TypeScript', ext: '.ts' },
-  { value: 'r', label: 'R', ext: '.R' },
-  { value: 'perl', label: 'Perl', ext: '.pl' },
-  { value: 'ruby', label: 'Ruby', ext: '.rb' },
-];
-
-// Script templates
-const scriptTemplates = [
-  {
-    id: 'none',
-    name: 'Blank',
-    description: 'Start from scratch',
-    icon: Code2,
-    content: '',
-    language: 'python',
-  },
-  {
-    id: 'http-request',
-    name: 'HTTP Request',
-    description: 'Fetch data from an API endpoint',
-    icon: Globe,
-    content: `#!/usr/bin/env python3
-"""HTTP Request Script"""
-
-import urllib.request
-import json
-
-url = "https://api.example.com/data"
-headers = {"Accept": "application/json"}
-
-req = urllib.request.Request(url, headers=headers)
-with urllib.request.urlopen(req) as response:
-    data = json.loads(response.read().decode())
-    print(json.dumps(data, indent=2))
-    print(f"Status: {response.status}")
-`,
-    language: 'python',
-  },
-  {
-    id: 'file-processor',
-    name: 'File Processor',
-    description: 'Read and process files',
-    icon: FileText,
-    content: `#!/usr/bin/env python3
-"""File Processor Script"""
-
-import os
-
-INPUT_DIR = "./input"
-OUTPUT_DIR = "./output"
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-for filename in os.listdir(INPUT_DIR):
-    filepath = os.path.join(INPUT_DIR, filename)
-    if os.path.isfile(filepath):
-        with open(filepath, 'r') as f:
-            content = f.read()
-        # Process content here
-        out_path = os.path.join(OUTPUT_DIR, f"processed_{filename}")
-        with open(out_path, 'w') as f:
-            f.write(content.upper())
-        print(f"Processed: {filename}")
-
-print("Done!")
-`,
-    language: 'python',
-  },
-  {
-    id: 'data-parser',
-    name: 'Data Parser',
-    description: 'Parse CSV/JSON data',
-    icon: Database,
-    content: `#!/usr/bin/env python3
-"""Data Parser - CSV/JSON"""
-
-import json
-import csv
-
-# Parse JSON
-json_data = '{"name": "Alice", "age": 30, "city": "NYC"}'
-parsed = json.loads(json_data)
-print("JSON parsed:", parsed)
-
-# Parse CSV (in-memory example)
-csv_data = "name,age,city\\nAlice,30,NYC\\nBob,25,LA\\nCharlie,35,SF"
-reader = csv.DictReader(csv_data.strip().split("\\n"))
-print("\\nCSV parsed:")
-for row in reader:
-    print(f"  {row['name']}: {row['age']}y, {row['city']}")
-
-print(f"\\nTotal records: {len(list(csv.DictReader(csv_data.strip().split('\\n'))))}")
-`,
-    language: 'python',
-  },
-  {
-    id: 'api-server',
-    name: 'API Server',
-    description: 'Express-style HTTP server',
-    icon: Server,
-    content: `#!/usr/bin/env node
-/** Simple API Server (requires Express) */
-
-const express = require('express');
-const app = express();
-
-app.use(express.json());
-
-// In-memory data store
-let items = [];
-let nextId = 1;
-
-// GET all items
-app.get('/api/items', (req, res) => {
-  res.json({ items, count: items.length });
-});
-
-// POST new item
-app.post('/api/items', (req, res) => {
-  const item = { id: nextId++, ...req.body, createdAt: new Date() };
-  items.push(item);
-  res.status(201).json(item);
-});
-
-// GET single item
-app.get('/api/items/:id', (req, res) => {
-  const item = items.find(i => i.id === parseInt(req.params.id));
-  if (!item) return res.status(404).json({ error: 'Not found' });
-  res.json(item);
-});
-
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(\`Server running on port \${PORT}\`);
-});
-`,
-    language: 'javascript',
-  },
-  {
-    id: 'cron-job',
-    name: 'Cron Job',
-    description: 'Scheduled task runner',
-    icon: Clock,
-    content: `#!/usr/bin/env python3
-"""Cron-style Scheduled Task Runner"""
-
-import time
-import datetime
-from threading import Thread
-
-# Task configuration: interval in seconds
-TASKS = [
-    {"name": "Health Check", "interval": 30, "func": "check_health"},
-    {"name": "Data Sync", "interval": 60, "func": "sync_data"},
-    {"name": "Cleanup", "interval": 300, "func": "cleanup"},
+const LANGUAGES = ['python', 'chimerax', 'pymol', 'bash', 'r', 'julia']
+const CATEGORIES = [
+  'ChimeraX',
+  'PyMOL',
+  'Structural Biology',
+  'Antibody Analysis',
+  'PDB Processing',
+  'Cryo-EM',
+  'Visualization',
+  'Image Processing',
+  'AI/ML',
+  'Data Processing',
+  'General',
 ]
 
-def check_health():
-    """Simulated health check"""
-    print(f"[{now()}] Health check: OK")
-
-def sync_data():
-    """Simulated data sync"""
-    print(f"[{now()}] Syncing data...")
-
-def cleanup():
-    """Simulated cleanup"""
-    print(f"[{now()}] Cleanup completed")
-
-def now():
-    return datetime.datetime.now().strftime("%H:%M:%S")
-
-def run_task(name, interval, func_name):
-    funcs = {"check_health": check_health, "sync_data": sync_data, "cleanup": cleanup}
-    func = funcs.get(func_name)
-    if not func:
-        print(f"Unknown task: {func_name}")
-        return
-    print(f"[{now()}] Starting task: {name} (every {interval}s)")
-    while True:
-        try:
-            func()
-        except Exception as e:
-            print(f"[{now()}] Error in {name}: {e}")
-        time.sleep(interval)
-
-if __name__ == "__main__":
-    print(f"[{now()}] Cron scheduler started")
-    for task in TASKS:
-        Thread(target=run_task, args=(task["name"], task["interval"], task["func"]), daemon=True).start()
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print(f"\\n[{now()}] Scheduler stopped")
-`,
-    language: 'python',
-  },
-];
-
-const defaultTemplates: Record<string, string> = {
-  python: `#!/usr/bin/env python3
-"""Script: \${NAME}"""
-
-def main():
-    print("Hello from \${NAME}!")
-
-if __name__ == "__main__":
-    main()
-`,
-  bash: `#!/usr/bin/env bash
-# Script: \${NAME}
-
-echo "Hello from \${NAME}!"
-`,
-  javascript: `// Script: \${NAME}
-
-function main() {
-  console.log("Hello from \${NAME}!");
-}
-
-main();
-`,
-  typescript: `// Script: \${NAME}
-
-function main(): void {
-  console.log("Hello from \${NAME}!");
-}
-
-main();
-`,
-  r: `# Script: \${NAME}
-
-main <- function() {
-  cat("Hello from \${NAME}!\\n")
-}
-
-main()
-`,
-  perl: `#!/usr/bin/env perl
-# Script: \${NAME}
-
-print "Hello from \${NAME}!\\n";
-`,
-  ruby: `#!/usr/bin/env ruby
-# Script: \${NAME}
-
-def main
-  puts "Hello from \${NAME}!"
-end
-
-main
-`,
-};
-
 interface CreateScriptDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSaved: () => void;
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }
 
-export default function CreateScriptDialog({ open, onOpenChange, onSaved }: CreateScriptDialogProps) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('Uncategorized');
-  const [language, setLanguage] = useState('python');
-  const [content, setContent] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [useTemplate, setUseTemplate] = useState(true);
-  const [selectedTemplateId, setSelectedTemplateId] = useState('none');
+export default function CreateScriptDialog({
+  open,
+  onOpenChange,
+}: CreateScriptDialogProps) {
+  const { createScript, updateScript, loadScripts } = useScriptStore()
+  const [isSaving, setIsSaving] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
-  const selectedLang = languages.find(l => l.value === language);
-  const selectedTemplate = scriptTemplates.find(t => t.id === selectedTemplateId);
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    code: '',
+    language: 'python',
+    category: 'General',
+    tags: '',
+  })
 
-  const handleLanguageChange = (lang: string) => {
-    setLanguage(lang);
-    if (useTemplate && !content) {
-      const template = defaultTemplates[lang] || '';
-      setContent(template.replace(/\$\{NAME\}/g, name || 'My Script'));
+  const resetForm = () => {
+    setForm({
+      name: '',
+      description: '',
+      code: '',
+      language: 'python',
+      category: 'General',
+      tags: '',
+    })
+  }
+
+  const handleClose = (open: boolean) => {
+    if (!open) {
+      onOpenChange(false)
+      resetForm()
     }
-  };
-
-  const handleNameChange = (newName: string) => {
-    setName(newName);
-    if (useTemplate) {
-      const template = defaultTemplates[language] || '';
-      setContent(template.replace(/\$\{NAME\}/g, newName || 'My Script'));
-    }
-  };
-
-  const handleTemplateSelect = (templateId: string) => {
-    setSelectedTemplateId(templateId);
-    const tmpl = scriptTemplates.find(t => t.id === templateId);
-    if (tmpl && tmpl.content) {
-      setContent(tmpl.content);
-      setLanguage(tmpl.language);
-      setUseTemplate(false);
-    } else {
-      const template = defaultTemplates[language] || '';
-      setContent(template.replace(/\$\{NAME\}/g, name || 'My Script'));
-      setUseTemplate(true);
-    }
-  };
+  }
 
   const handleSave = async () => {
-    if (!name.trim()) {
-      toast.error('Script name is required');
-      return;
+    if (!form.name.trim()) {
+      toast.error('Script name is required')
+      return
     }
-    if (!content.trim()) {
-      toast.error('Script content is required');
-      return;
+    if (!form.code.trim()) {
+      toast.error('Script code is required')
+      return
     }
 
-    setSaving(true);
+    setIsSaving(true)
     try {
-      const filename = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') + (selectedLang?.ext || '.txt');
-      const r = await fetch('/api/scripts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim(),
-          filename,
-          content,
-          category,
-          language,
-          source: 'manual',
-        }),
-      });
+      const script = await createScript({
+        name: form.name.trim(),
+        description: form.description.trim(),
+        code: form.code,
+        language: form.language,
+        category: form.category,
+        tags: form.tags
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean),
+      })
+      toast.success('Script created successfully')
 
-      if (!r.ok) {
-        const d = await r.json();
-        throw new Error(d.error || 'Failed to create script');
+      // Analyze script with AI and auto-populate fields
+      setIsSaving(false)
+      setIsAnalyzing(true)
+      try {
+        const res = await fetch('/api/ai/analyze-script', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: form.code, filename: form.name }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const analysis = data.analysis
+          const updatePayload: Record<string, string> = {}
+          if (analysis.description && !form.description.trim()) {
+            updatePayload.description = analysis.description
+          }
+          if (analysis.parameters) {
+            updatePayload.params = JSON.stringify(analysis.parameters)
+          }
+          if (analysis.inputFiles) {
+            updatePayload.inputFiles = JSON.stringify(analysis.inputFiles)
+          }
+          if (analysis.outputFiles) {
+            updatePayload.outputFiles = JSON.stringify(analysis.outputFiles)
+          }
+          if (Object.keys(updatePayload).length > 0 && script?.id) {
+            await updateScript(script.id, updatePayload)
+            toast.success('AI analysis complete — fields auto-populated')
+          }
+        }
+      } catch {
+        // Graceful fallback: script was already created, just skip AI analysis
+        toast.error('Script created but AI analysis failed')
+      } finally {
+        setIsAnalyzing(false)
       }
 
-      toast.success('Script created successfully', { description: name });
-      onSaved();
-      onOpenChange(false);
-      // Reset form
-      setName('');
-      setDescription('');
-      setCategory('Uncategorized');
-      setLanguage('python');
-      setContent('');
-      setUseTemplate(true);
-      setSelectedTemplateId('none');
-    } catch (e: any) {
-      toast.error('Failed to create script', { description: e.message || 'Unknown error' });
+      await loadScripts()
+      handleClose(false)
+    } catch {
+      toast.error('Failed to create script')
+    } finally {
+      setIsSaving(false)
     }
-    setSaving(false);
-  };
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-xl" onOpenAutoFocus={(e) => e.preventDefault()}>
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <div className="size-7 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-sm">
-              <Plus className="size-4 text-white" />
-            </div>
+            <Plus className="size-5 text-teal-600 dark:text-teal-400" />
             Create New Script
           </DialogTitle>
           <DialogDescription>
-            Create a new script from scratch or use a template.
+            Add a new script to your ScriptHub collection
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 pt-2">
-          {/* Template Selector */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Template</Label>
-            <Select value={selectedTemplateId} onValueChange={handleTemplateSelect}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {scriptTemplates.map(tmpl => (
-                  <SelectItem key={tmpl.id} value={tmpl.id}>
-                    <div className="flex items-center gap-2">
-                      <tmpl.icon className="size-3" />
-                      <span>{tmpl.name}</span>
-                      <span className="text-[9px] text-muted-foreground">— {tmpl.description}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* Template preview */}
-            {selectedTemplate && selectedTemplate.content && (
-              <div className="rounded-md border bg-muted/30 p-2">
-                <pre className="text-[9px] font-mono text-muted-foreground leading-4 overflow-hidden">
-                  {(selectedTemplate.content || '').split('\n').slice(0, 3).map((line, i) => (
-                    <div key={i}>
-                      <span className="select-none text-muted-foreground/30 pr-2">{i + 1}</span>
-                      {line || ' '}
-                    </div>
-                  ))}
-                  <div className="text-muted-foreground/50">...</div>
-                </pre>
-              </div>
-            )}
-          </div>
-
+        <div className="space-y-4 py-2">
           {/* Name */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Name *</Label>
+            <Label htmlFor="script-name">
+              Name <span className="text-destructive">*</span>
+            </Label>
             <Input
-              value={name}
-              onChange={e => handleNameChange(e.target.value)}
-              placeholder="My Awesome Script"
-              className="h-9 text-sm"
+              id="script-name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g., Color by B-Factor"
             />
           </div>
 
           {/* Description */}
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Description</Label>
+            <Label htmlFor="script-desc">Description</Label>
             <Textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="What does this script do? Describe its purpose, inputs, and outputs..."
-              className="min-h-[80px] text-sm resize-none"
+              id="script-desc"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Brief description of what this script does..."
+              rows={2}
             />
           </div>
 
-          {/* Category & Language */}
+          {/* Language & Category */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Category</Label>
-              <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map(cat => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Language</Label>
-              <Select value={language} onValueChange={handleLanguageChange}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {languages.map(lang => (
-                    <SelectItem key={lang.value} value={lang.value}>{lang.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Filename preview */}
-          <div className="flex items-center gap-2">
-            <Label className="text-xs text-muted-foreground">Filename:</Label>
-            <Badge variant="outline" className="text-[10px] font-mono">
-              {name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'untitled'}{selectedLang?.ext || '.txt'}
-            </Badge>
-          </div>
-
-          {/* Content */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-medium">Code *</Label>
-              <Button
-                variant="ghost"
-                size="xs"
-                className="text-[10px] gap-1"
-                onClick={() => {
-                  setUseTemplate(false);
-                  setSelectedTemplateId('none');
-                  const template = defaultTemplates[language] || '';
-                  setContent(template.replace(/\$\{NAME\}/g, name || 'My Script'));
-                }}
+              <Label>Language</Label>
+              <Select
+                value={form.language}
+                onValueChange={(value) => setForm({ ...form, language: value })}
               >
-                <Code2 className="size-3" />
-                Load Default
-              </Button>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LANGUAGES.map((lang) => (
+                    <SelectItem key={lang} value={lang}>
+                      {lang.charAt(0).toUpperCase() + lang.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Textarea
-              value={content}
-              onChange={e => { setContent(e.target.value); setUseTemplate(false); }}
-              placeholder="Write your script code here..."
-              className="min-h-[240px] font-mono text-[11px] leading-5 bg-muted/30 resize-y"
-              autoFocus={false}
+
+            <div className="space-y-1.5">
+              <Label>Category</Label>
+              <Select
+                value={form.category}
+                onValueChange={(value) => setForm({ ...form, category: value })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Tags */}
+          <div className="space-y-1.5">
+            <Label htmlFor="script-tags">Tags</Label>
+            <Input
+              id="script-tags"
+              value={form.tags}
+              onChange={(e) => setForm({ ...form, tags: e.target.value })}
+              placeholder="Comma-separated tags (e.g., pdb, analysis, color)"
             />
-            <p className="text-[10px] text-muted-foreground">
-              {content.split('\n').length} lines • {content.length} characters
+            <p className="text-xs text-muted-foreground">
+              Separate tags with commas
             </p>
+          </div>
+
+          {/* Code */}
+          <div className="space-y-1.5">
+            <Label htmlFor="script-code">
+              Code <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="script-code"
+              value={form.code}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+              placeholder="Paste or type your script code here..."
+              rows={8}
+              className="font-mono text-sm"
+            />
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 pt-2 border-t mt-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => handleClose(false)}
+            disabled={isSaving || isAnalyzing}
+          >
             Cancel
           </Button>
           <Button
-            size="sm"
-            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
             onClick={handleSave}
-            disabled={saving || !name.trim() || !content.trim()}
+            disabled={isSaving || isAnalyzing}
+            className="gap-1.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white"
           >
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-            Create Script
+            {isSaving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : isAnalyzing ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            {isSaving
+              ? 'Saving...'
+              : isAnalyzing
+                ? 'Analyzing with AI...'
+                : 'Create Script'}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

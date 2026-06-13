@@ -18,6 +18,9 @@ import {
   Files,
   FileCode2,
   Code2,
+  FileText,
+  Package,
+  Info,
 } from 'lucide-react'
 import CodeHighlighter from '@/components/CodeHighlighter'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
@@ -200,7 +203,7 @@ export default function ScriptDetailPanel() {
 
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
   const [copied, setCopied] = useState(false)
-  const [activeTab, setActiveTab] = useState('code')
+  const [activeTab, setActiveTab] = useState('overview')
 
   // Name editing state
   const [editingName, setEditingName] = useState(false)
@@ -660,6 +663,9 @@ export default function ScriptDetailPanel() {
       >
         <div className="px-4 pt-2 shrink-0">
           <TabsList className="w-full">
+            <TabsTrigger value="overview" className="flex-1 text-xs">
+              Overview
+            </TabsTrigger>
             <TabsTrigger value="code" className="flex-1 text-xs">
               Code
             </TabsTrigger>
@@ -677,6 +683,330 @@ export default function ScriptDetailPanel() {
             </TabsTrigger>
           </TabsList>
         </div>
+
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="flex-1 min-h-0 mt-0">
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-4">
+              {/* Parsed data */}
+              {(() => {
+                const parseJson = (val: unknown) => {
+                  if (!val || typeof val !== 'string' || val.trim() === '') return []
+                  try { return JSON.parse(val) } catch { return [] }
+                }
+                const inputFiles = parseJson(selectedScript.inputFiles)
+                const outputFiles = parseJson(selectedScript.outputFiles)
+                const dependencies = parseJson(selectedScript.dependencies)
+                const sourceUrl = selectedScript.sourceUrl
+
+                return (
+                  <>
+                    {/* Description Section */}
+                    <div className="rounded-lg border bg-card p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Info className="size-4 text-muted-foreground" />
+                          <h3 className="text-sm font-semibold">Description</h3>
+                        </div>
+                        {!editingDescription && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleStartEditDescription}
+                            className="size-6"
+                            aria-label="Edit description"
+                          >
+                            <Pencil className="size-3" />
+                          </Button>
+                        )}
+                      </div>
+                      {editingDescription ? (
+                        <div className="space-y-2">
+                          <Textarea
+                            value={descriptionDraft}
+                            onChange={(e) => setDescriptionDraft(e.target.value)}
+                            placeholder="Add a description for this script…"
+                            className="min-h-[60px] text-sm resize-y"
+                            disabled={savingDescription}
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.preventDefault()
+                                handleCancelEditDescription()
+                              } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                                e.preventDefault()
+                                handleSaveDescription()
+                              }
+                            }}
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              onClick={handleSaveDescription}
+                              disabled={savingDescription}
+                              className="h-7 text-xs"
+                            >
+                              {savingDescription ? (
+                                <Loader2 className="size-3 mr-1 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="size-3 mr-1" />
+                              )}
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={handleCancelEditDescription}
+                              disabled={savingDescription}
+                              className="h-7 text-xs"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                          {selectedScript.description || 'No description provided.'}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Input Files Section */}
+                    {inputFiles.length > 0 && (
+                      <div className="rounded-lg border bg-card p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <FileText className="size-4 text-muted-foreground" />
+                          <h3 className="text-sm font-semibold">
+                            Input Files
+                            <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                              ({inputFiles.length})
+                            </span>
+                          </h3>
+                        </div>
+                        <div className="space-y-2">
+                          {inputFiles.map(
+                            (
+                              file: {
+                                name: string
+                                description?: string
+                                required?: boolean
+                                format?: string
+                              },
+                              idx: number
+                            ) => (
+                              <div
+                                key={idx}
+                                className="flex items-start gap-3 rounded-md bg-muted/30 px-3 py-2.5 border border-border/40"
+                              >
+                                <div className="flex-1 min-w-0 space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-medium truncate">
+                                      {file.name}
+                                    </span>
+                                    {file.format && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px] h-4 px-1.5 font-mono uppercase"
+                                      >
+                                        {file.format}
+                                      </Badge>
+                                    )}
+                                    {file.required ? (
+                                      <Badge className="text-[10px] h-4 px-1.5 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-0">
+                                        Required
+                                      </Badge>
+                                    ) : (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] h-4 px-1.5"
+                                      >
+                                        Optional
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {file.description && (
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                      {file.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Output Files Section */}
+                    {outputFiles.length > 0 && (
+                      <div className="rounded-lg border bg-card p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Download className="size-4 text-muted-foreground" />
+                          <h3 className="text-sm font-semibold">
+                            Output Files
+                            <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                              ({outputFiles.length})
+                            </span>
+                          </h3>
+                        </div>
+                        <div className="space-y-2">
+                          {outputFiles.map(
+                            (
+                              file: {
+                                name: string
+                                description?: string
+                                format?: string
+                              },
+                              idx: number
+                            ) => (
+                              <div
+                                key={idx}
+                                className="flex items-center gap-3 rounded-md bg-muted/30 px-3 py-2.5 border border-border/40"
+                              >
+                                <div className="flex-1 min-w-0 space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-medium truncate">
+                                      {file.name}
+                                    </span>
+                                    {file.format && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px] h-4 px-1.5 font-mono uppercase"
+                                      >
+                                        {file.format}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {file.description && (
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                      {file.description}
+                                    </p>
+                                  )}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-7 shrink-0"
+                                  aria-label={`Download ${file.name}`}
+                                >
+                                  <Download className="size-3.5 text-muted-foreground" />
+                                </Button>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dependencies Section */}
+                    {dependencies.length > 0 && (
+                      <div className="rounded-lg border bg-card p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Package className="size-4 text-muted-foreground" />
+                          <h3 className="text-sm font-semibold">
+                            Dependencies
+                            <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                              ({dependencies.length})
+                            </span>
+                          </h3>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {dependencies.map(
+                            (dep: string, idx: number) => (
+                              <Badge
+                                key={idx}
+                                variant="secondary"
+                                className="text-xs font-mono px-2 py-0.5"
+                              >
+                                {dep}
+                              </Badge>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Metadata Section */}
+                    <div className="rounded-lg border bg-card p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Info className="size-4 text-muted-foreground" />
+                        <h3 className="text-sm font-semibold">Metadata</h3>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                            Language
+                          </span>
+                          <span className="text-sm">{languageLabel}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                            Category
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'text-xs w-fit mt-0.5',
+                              colors.bg,
+                              colors.text,
+                              colors.border
+                            )}
+                          >
+                            {selectedScript.category}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                            Lines of Code
+                          </span>
+                          <span className="text-sm">{codeLines}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                            File Size
+                          </span>
+                          <span className="text-sm">{codeSizeDisplay}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                            Created
+                          </span>
+                          <span className="text-sm">
+                            {new Date(selectedScript.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                            Updated
+                          </span>
+                          <span className="text-sm">
+                            {new Date(selectedScript.updatedAt).toLocaleString()}
+                          </span>
+                        </div>
+                        {sourceUrl && (
+                          <div className="flex flex-col col-span-2">
+                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                              Source
+                            </span>
+                            <a
+                              href={sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 mt-0.5 truncate"
+                            >
+                              <ExternalLink className="size-3 shrink-0" />
+                              <span className="truncate">{sourceUrl}</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          </ScrollArea>
+        </TabsContent>
 
         {/* Code Tab */}
         <TabsContent value="code" className="flex-1 min-h-0 min-w-0 mt-0 overflow-hidden relative">

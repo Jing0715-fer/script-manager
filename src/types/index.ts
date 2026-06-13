@@ -7,7 +7,11 @@ export interface Script {
   category: string;
   tags: string[];
   params: ScriptParam[];
+  inputFiles?: string;   // JSON array of {name, description, required, format}
+  outputFiles?: string;  // JSON array of {name, description, format}
+  dependencies?: string; // JSON array of dependency names
   source: string;
+  sourceUrl?: string;
   version: number;
   isFavorite: boolean;
   isPinned: boolean;

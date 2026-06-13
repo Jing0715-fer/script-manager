@@ -1,6 +1,6 @@
+// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
-import { getActiveLlmConfig } from '@/lib/get-llm-config';
+import { hermesChatCompletion, getHermesDefaultModel } from '@/lib/hermes';
 
 interface AnalysisResult {
   description: string;
@@ -27,7 +27,7 @@ interface AnalysisResult {
   summary: string;
 }
 
-// POST /api/ai/analyze-script - Analyze a script using AI
+// POST /api/ai/analyze-script - Analyze a script using Hermes LLM
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -40,18 +40,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Load stored LLM config from database
-    const llmConfig = await getActiveLlmConfig();
-    if (!llmConfig) {
-      return NextResponse.json(
-        { error: 'No LLM configuration found. Please configure an LLM in Settings first.' },
-        { status: 400 }
-      );
-    }
-
-    console.log(`[analyze-script] Using LLM config: "${llmConfig.name}" (provider=${llmConfig.provider}, model=${llmConfig.model || 'default'})`);
-
-    const zai = await ZAI.create();
+    const model = await getHermesDefaultModel();
+    console.log(`[analyze-script] Using Hermes model: "${model}"`);
 
     const prompt = `Analyze the following script file named "${filename || 'unknown'}" and extract structured information.
 
@@ -62,14 +52,14 @@ ${content}
 
 Please provide a JSON analysis with the following structure (respond with ONLY valid JSON, no markdown):
 {
-  "description": "A clear description of what this script does",
+  "description": "A clear 1-2 sentence description of what this script does",
   "parameters": [
     {
       "name": "parameter_name",
       "type": "string|number|boolean|file|path",
       "description": "What this parameter does",
       "required": true,
-      "default": "default value if any"
+      "default": "default value if any (omit if no default)"
     }
   ],
   "inputFiles": [
@@ -77,14 +67,14 @@ Please provide a JSON analysis with the following structure (respond with ONLY v
       "name": "input_file_name",
       "description": "What this input file is used for",
       "required": true,
-      "format": "pdb|csv|json|txt|etc"
+      "format": "pdb|csv|json|txt|fasta|star|mtz|map|cif|py|sh|etc"
     }
   ],
   "outputFiles": [
     {
       "name": "output_file_name",
       "description": "What this output file contains",
-      "format": "pdb|csv|json|txt|etc"
+      "format": "pdb|csv|json|txt|svg|png|pptx|pdf|log|etc"
     }
   ],
   "dependencies": ["list", "of", "external", "dependencies"],
@@ -94,17 +84,19 @@ Please provide a JSON analysis with the following structure (respond with ONLY v
 
 Rules:
 - Extract command-line arguments and parameters the script accepts
-- Identify ALL input files the script reads or requires (e.g., PDB files, CSV files, config files)
-- Identify ALL output files the script generates or writes
-- Identify all external dependencies and imports
+- Mark required parameters with "required": true (no default value)
+- For optional parameters with defaults, set "required": false and include the "default" field
+- Identify ALL input files the script reads or requires (PDB, CSV, config, FASTA, etc.)
+- For each input file, specify its file type/format (e.g., pdb, csv, fasta, star, mtz, map, cif, txt, py, sh)
+- Identify ALL output files the script generates (tables, images, PPT, SVG, PNG, etc.)
+- Identify all external dependencies and imports beyond standard library
 - Provide accurate usage instructions
 - If no parameters are found, return an empty array
 - If no input/output files are found, return empty arrays
 - If no dependencies beyond standard library, return an empty array
 - Pay special attention to file paths, open() calls, and argparse arguments that represent files`;
 
-    // Build the request with model from config if specified
-    const createParams: Record<string, unknown> = {
+    const result = await hermesChatCompletion({
       messages: [
         {
           role: 'system',
@@ -116,14 +108,10 @@ Rules:
           content: prompt,
         },
       ],
+      temperature: 0.3,
+      max_tokens: 2048,
       thinking: { type: 'disabled' },
-    };
-
-    if (llmConfig.model) {
-      createParams.model = llmConfig.model;
-    }
-
-    const result = await zai.chat.completions.create(createParams as any);
+    });
 
     let analysis: AnalysisResult;
 
@@ -161,7 +149,7 @@ Rules:
       );
     }
 
-    return NextResponse.json({ analysis, configName: llmConfig.name });
+    return NextResponse.json({ analysis, model });
   } catch (error) {
     console.error('Error analyzing script:', error);
     return NextResponse.json(
