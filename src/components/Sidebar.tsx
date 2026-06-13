@@ -124,26 +124,27 @@ export default function Sidebar({ inSheet = false }: SidebarProps) {
       animate={{ x: 0 }}
       className="flex flex-col h-full"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <FlaskConical className="size-5 text-teal-600 dark:text-teal-400" />
-          {!sidebarOpen && !isMobile && (
-            <span className="font-semibold text-sm">Categories</span>
-          )}
-        </div>
+      {/* Header — FlaskConical is centered (not affected by the toggle button's
+          position). The toggle button is absolutely placed on the right border
+          so it never competes for flex space with the icon. */}
+      <div className="relative flex items-center justify-center px-2 py-3">
+        <FlaskConical className="size-5 text-teal-600 dark:text-teal-400 shrink-0" />
+        {sidebarOpen && !isMobile && (
+          <span className="ml-2 font-semibold text-sm truncate">Categories</span>
+        )}
         {!isMobile && !inSheet && (
           <Button
-            variant="ghost"
+            variant="outline"
             size="icon"
-            className="size-7"
+            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-6 w-6 rounded-full shadow-md bg-background hover:bg-accent hover:text-accent-foreground text-foreground z-10 border-border"
             onClick={() => setSidebarOpen(!sidebarOpen)}
             aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
             {sidebarOpen ? (
-              <ChevronLeft className="size-4" />
+              <ChevronLeft className="size-3.5" />
             ) : (
-              <ChevronRight className="size-4" />
+              <ChevronRight className="size-3.5" />
             )}
           </Button>
         )}

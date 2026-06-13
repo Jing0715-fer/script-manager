@@ -195,11 +195,15 @@ export default function ScriptDetailPanel() {
     loadExternalApps,
     createScript,
     loadScripts,
+    updateScript,
   } = useScriptStore()
 
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
   const [copied, setCopied] = useState(false)
   const [activeTab, setActiveTab] = useState('code')
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [savingDescription, setSavingDescription] = useState(false)
   const [versionHistory, setVersionHistory] = useState<Array<{ id: string; version: number; code: string; message: string; createdAt: string }>>([])
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null)
 
@@ -248,6 +252,45 @@ export default function ScriptDetailPanel() {
     setCopied(true)
     toast.success('Code copied to clipboard')
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Reset description edit state when the selected script changes
+  useEffect(() => {
+    if (selectedScript) {
+      setEditingDescription(false)
+      setDescriptionDraft(selectedScript.description || '')
+    }
+  }, [selectedScript?.id])
+
+  const handleStartEditDescription = () => {
+    if (!selectedScript) return
+    setDescriptionDraft(selectedScript.description || '')
+    setEditingDescription(true)
+  }
+
+  const handleCancelEditDescription = () => {
+    setEditingDescription(false)
+    setDescriptionDraft(selectedScript?.description || '')
+  }
+
+  const handleSaveDescription = async () => {
+    if (!selectedScript) return
+    const next = descriptionDraft.trim()
+    // No-op if unchanged
+    if (next === (selectedScript.description || '')) {
+      setEditingDescription(false)
+      return
+    }
+    setSavingDescription(true)
+    try {
+      await updateScript(selectedScript.id, { description: next })
+      toast.success('Description updated')
+      setEditingDescription(false)
+    } catch (e) {
+      toast.error(`Failed to update description: ${(e as Error).message}`)
+    } finally {
+      setSavingDescription(false)
+    }
   }
 
   const handleClose = () => {
@@ -323,9 +366,78 @@ export default function ScriptDetailPanel() {
             <h2 className="sr-only">
               {selectedScript.name}
             </h2>
-            <p className="text-sm text-muted-foreground line-clamp-2">
-              {selectedScript.description}
-            </p>
+            {editingDescription ? (
+              <div className="space-y-2">
+                <Textarea
+                  value={descriptionDraft}
+                  onChange={(e) => setDescriptionDraft(e.target.value)}
+                  placeholder="Add a description for this script…"
+                  className="min-h-[80px] text-sm resize-y"
+                  disabled={savingDescription}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    // Esc cancels, Cmd/Ctrl+Enter saves
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      handleCancelEditDescription()
+                    } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                      e.preventDefault()
+                      handleSaveDescription()
+                    }
+                  }}
+                />
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleSaveDescription}
+                    disabled={savingDescription}
+                    className="h-7 text-xs"
+                  >
+                    {savingDescription ? (
+                      <Loader2 className="size-3 mr-1 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="size-3 mr-1" />
+                    )}
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleCancelEditDescription}
+                    disabled={savingDescription}
+                    className="h-7 text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    ⌘/Ctrl+Enter to save · Esc to cancel
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="group flex items-start gap-2">
+                <p
+                  className={cn(
+                    'flex-1 text-sm text-muted-foreground whitespace-pre-wrap break-words',
+                    selectedScript.description
+                      ? ''
+                      : 'italic text-muted-foreground/60'
+                  )}
+                >
+                  {selectedScript.description || 'No description yet.'}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleStartEditDescription}
+                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                  aria-label="Edit description"
+                  title="Edit description"
+                >
+                  <Pencil className="size-3" />
+                </Button>
+              </div>
+            )}
           </div>
           <Button
             variant="ghost"
@@ -473,33 +585,41 @@ export default function ScriptDetailPanel() {
         </div>
 
         {/* Code Tab */}
-        <TabsContent value="code" className="flex-1 min-h-0 mt-0">
-          <ScrollArea className="h-full">
-            <div className="relative">
-              <div className="absolute top-2 right-2 z-10 flex gap-1">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 text-xs gap-1"
-                  onClick={handleCopy}
-                >
-                  {copied ? (
-                    <CheckCircle2 className="size-3" />
-                  ) : (
-                    <Copy className="size-3" />
-                  )}
-                  {copied ? 'Copied' : 'Copy'}
-                </Button>
-              </div>
-              <div className="rounded-lg overflow-hidden">
-                <CodeHighlighter
-                  language={getHighlightLanguage(selectedScript.language)}
-                  code={selectedScript.code}
-                  showLineNumbers
-                />
-              </div>
+        <TabsContent value="code" className="flex-1 min-h-0 min-w-0 mt-0 overflow-hidden relative">
+          {/* Copy button lives OUTSIDE the scrolling region so its absolute
+              positioning isn't affected by the (potentially very wide)
+              CodeHighlighter content. Sticky to the top-right of the
+              TabsContent so it stays visible as the user scrolls. */}
+          <div className="absolute top-2 right-2 z-20 flex gap-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 text-xs gap-1 shadow-md"
+              onClick={handleCopy}
+            >
+              {copied ? (
+                <CheckCircle2 className="size-3" />
+              ) : (
+                <Copy className="size-3" />
+              )}
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+          {/* Native overflow-auto div (NOT Radix ScrollArea) — Radix wraps
+              its content in a `display: table; min-width: 100%` div that
+              shrink-wraps to the widest descendant, defeating our width
+              constraints. A plain div honors the panel width and the
+              CodeHighlighter wrapper's overflow:auto handles horizontal
+              scrolling for long lines. */}
+          <div className="h-full overflow-auto">
+            <div className="block p-4 pt-12 w-full min-w-0 max-w-full box-border">
+              <CodeHighlighter
+                language={getHighlightLanguage(selectedScript.language)}
+                code={selectedScript.code}
+                showLineNumbers
+              />
             </div>
-          </ScrollArea>
+          </div>
         </TabsContent>
 
         {/* Parameters Tab */}
@@ -865,24 +985,27 @@ export default function ScriptDetailPanel() {
     <AnimatePresence>
       {detailPanelOpen && (
         <>
-          {/* Overlay */}
+          {/* Overlay — z-30 keeps it below the sticky Header (z-50) so the
+              sidebar toggle button in the header stays clickable even when
+              the detail panel is open. */}
           <motion.div
             key="detail-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-40 bg-black/20"
+            className="fixed inset-0 z-30 bg-black/20"
             onClick={handleClose}
           />
-          {/* Panel */}
+          {/* Panel — z-30 so Header (z-50) overlays it. Top offset matches
+              Header height (h-14 = 3.5rem). */}
           <motion.div
             key="detail-panel"
             initial={{ x: 450 }}
             animate={{ x: 0 }}
             exit={{ x: 450 }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed top-14 right-0 z-40 h-[calc(100vh-3.5rem-2.5rem)] w-[450px] border-l bg-background shadow-xl"
+            className="fixed top-14 right-0 z-30 h-[calc(100vh-3.5rem-2.5rem)] w-[450px] border-l bg-background shadow-xl"
           >
             {panelContent}
           </motion.div>
