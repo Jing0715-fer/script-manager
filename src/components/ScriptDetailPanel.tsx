@@ -50,6 +50,21 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
 
+/** Download a file via fetch + blob (more reliable than <a> tag). */
+async function downloadFile(url: string, filename: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
 function ParamField({
   param,
   value,
@@ -204,6 +219,7 @@ export default function ScriptDetailPanel() {
   } = useScriptStore()
 
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
+  const [inputFiles, setInputFiles] = useState<Record<string, string>>({})
   const [copied, setCopied] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
 
@@ -227,10 +243,15 @@ export default function ScriptDetailPanel() {
   if (currentId !== prevScriptId) {
     setPrevScriptId(currentId)
     const defaults: Record<string, unknown> = {}
+    const fileInputs: Record<string, string> = {}
     selectedScript?.params?.forEach((p) => {
       if (p.default !== undefined) defaults[p.name] = p.default
+      if (p.type === 'file' || p.type === 'path') {
+        fileInputs[p.name] = (p.default as string) || ''
+      }
     })
     setParamValues(defaults)
+    setInputFiles(fileInputs)
   }
 
   useEffect(() => {
@@ -247,12 +268,17 @@ export default function ScriptDetailPanel() {
 
   const handleParamChange = (name: string, value: unknown) => {
     setParamValues((prev) => ({ ...prev, [name]: value }))
+    // Track file/path values separately for inputFiles API param
+    const param = selectedScript?.params?.find((p) => p.name === name)
+    if (param && (param.type === 'file' || param.type === 'path')) {
+      setInputFiles((prev) => ({ ...prev, [name]: String(value || '') }))
+    }
   }
 
   const handleExecute = async () => {
     if (!selectedScript) return;
     try {
-      const result = await executeScript(selectedScript.id, paramValues);
+      const result = await executeScript(selectedScript.id, paramValues, inputFiles);
       setLastResultFiles(result.resultFiles || []);
       toast.success('Script executed successfully');
     } catch {
@@ -816,7 +842,6 @@ export default function ScriptDetailPanel() {
                                     </p>
                                   )}
                                 </div>
-                                <div />
                               </div>
                             )
                           )}
@@ -1049,13 +1074,15 @@ export default function ScriptDetailPanel() {
                           variant="ghost"
                           size="icon"
                           className="size-7 shrink-0"
-                          onClick={() => {
-                            const a = document.createElement('a');
-                            a.href = `/api/files/download?path=${encodeURIComponent(file.path)}`;
-                            a.download = file.name;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
+                          onClick={async () => {
+                            try {
+                              await downloadFile(
+                                `/api/files/download?path=${encodeURIComponent(file.path)}`,
+                                file.name,
+                              );
+                            } catch {
+                              toast.error(`Failed to download ${file.name}`);
+                            }
                           }}
                         >
                           <Download className="size-3.5" />
@@ -1121,13 +1148,15 @@ export default function ScriptDetailPanel() {
                           {log.resultFiles.map((file, fi) => (
                             <button
                               key={fi}
-                              onClick={() => {
-                                const a = document.createElement('a');
-                                a.href = `/api/files/download?path=${encodeURIComponent(file.path)}`;
-                                a.download = file.name;
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
+                              onClick={async () => {
+                                try {
+                                  await downloadFile(
+                                    `/api/files/download?path=${encodeURIComponent(file.path)}`,
+                                    file.name,
+                                  );
+                                } catch {
+                                  toast.error(`Failed to download ${file.name}`);
+                                }
                               }}
                               className="flex items-center gap-1 px-2 py-1 rounded-md bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 text-[10px] text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors"
                               title={`${file.name} (${file.size < 1024 ? `${file.size} B` : `${(file.size / 1024).toFixed(1)} KB`})`}

@@ -186,11 +186,11 @@ export const useScriptStore = create<ScriptStore>()(
 
       deleteExecution: async (id) => {
         try {
-          await api.deleteExecution(id);
+          // Optimistic: remove from local state immediately
           set((state) => ({
             executionLogs: state.executionLogs.filter((e) => e.id !== id),
           }));
-          await get().loadScripts();
+          await api.deleteExecution(id);
         } catch (error) {
           console.error('Failed to delete execution:', error);
           throw error;
