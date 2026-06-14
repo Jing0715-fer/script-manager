@@ -82,6 +82,7 @@
     "zustand": "^5.0.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -91,5 +92,18 @@
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
-  }
+  },
+  "description": "一个本地 Python 脚本管理平台 —— 把散落在 `~/upload/`、`~/projects/scripts/` 里的各种零散 Python 工具集中管理,带分类、参数化执行、执行日志记录。",
+  "main": "start-server.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jing0715-fer/script-manager.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Jing0715-fer/script-manager/issues"
+  },
+  "homepage": "https://github.com/Jing0715-fer/script-manager#readme"
 }

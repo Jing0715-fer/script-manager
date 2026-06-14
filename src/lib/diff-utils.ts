@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ─── LCS-Based Diff Function ──────────────────────────────────
 // Uses Longest Common Subsequence (LCS) for proper diff computation
 

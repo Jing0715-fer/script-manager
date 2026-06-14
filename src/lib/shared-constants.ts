@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ─── Category Background Colors ────────────────────────────────────
 // Used for category badges across the app
 

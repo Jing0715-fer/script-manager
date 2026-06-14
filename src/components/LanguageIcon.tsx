@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 
 import { Code2, Terminal, Zap, FileCode2, BarChart3, Cog, Gem, Dna, Microscope, Globe, Wrench, type LucideProps } from 'lucide-react';

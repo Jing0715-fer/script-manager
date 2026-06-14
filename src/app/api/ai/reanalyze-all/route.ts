@@ -26,9 +26,12 @@ export async function POST(request: NextRequest) {
     for (const script of scripts) {
       try {
         // Skip if already has a meaningful description and params
+        const str = (v: unknown) => (typeof v === 'string' ? v : '');
         const hasDescription = script.description && script.description.length > 20;
-        const hasParams = script.params && script.params !== '[]';
-        if (hasDescription && hasParams) {
+        const hasParams = str(script.params) !== '' && str(script.params) !== '[]';
+        const hasInputFiles = str(script.inputFiles) !== '' && str(script.inputFiles) !== '[]';
+        const hasOutputFiles = str(script.outputFiles) !== '' && str(script.outputFiles) !== '[]';
+        if (hasDescription && hasParams && hasInputFiles && hasOutputFiles) {
           skipped++;
           results.push({ id: script.id, name: script.name, status: 'skipped' });
           continue;

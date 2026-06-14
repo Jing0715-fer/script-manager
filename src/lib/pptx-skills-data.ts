@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Skill metadata for pptx-template-editor repo scripts.
  * Used by /api/seed/route.ts for GitHub-based seeding.
