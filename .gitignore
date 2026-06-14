@@ -45,3 +45,7 @@ next-env.d.ts
 # Local data
 db/
 data/
+prisma/dev.db
+reanalyze-output.txt
+test-results/
+uploads/
