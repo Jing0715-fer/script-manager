@@ -7,6 +7,30 @@ import { randomUUID } from 'crypto';
 
 const TMP_DIR = process.env.SCRIPT_MANAGER_TMP_DIR || '/tmp/script-manager';
 const UPLOAD_DIR = process.env.SCRIPT_MANAGER_UPLOAD_DIR || join(process.cwd(), 'uploads');
+// Python interpreter. Override via SCRIPT_MANAGER_PYTHON. Falls back to the
+// project-local venv (so matplotlib/openpyxl/anarci are available), then to
+// the system python3.
+const PYTHON_BIN =
+  process.env.SCRIPT_MANAGER_PYTHON ||
+  join(process.cwd(), '.venv', 'bin', 'python3');
+// Application launchers for script "runtimes" that aren't vanilla Python.
+// Each runtime wraps the script execution in an external app's headless
+// interpreter. Override via env vars to point at non-default installs.
+const PYMOL_BIN =
+  process.env.SCRIPT_MANAGER_PYMOL_BIN ||
+  '/Applications/PyMOL.app/Contents/bin/pymol';
+// Look for ChimeraX under a few common install paths. The versioned bundle
+// (ChimeraX-1.12.app etc.) is what the official .dmg ships.
+const CHIMERAX_CANDIDATES = [
+  process.env.SCRIPT_MANAGER_CHIMERAX_BIN,
+  '/Applications/ChimeraX-1.12.app/Contents/bin/ChimeraX',
+  '/Applications/ChimeraX-1.11.app/Contents/bin/ChimeraX',
+  '/Applications/ChimeraX-1.10.app/Contents/bin/ChimeraX',
+  '/Applications/ChimeraX-1.9.app/Contents/bin/ChimeraX',
+  '/Applications/ChimeraX-1.8.app/Contents/bin/ChimeraX',
+  '/Applications/ChimeraX-1.7.app/Contents/bin/ChimeraX',
+  '/Applications/ChimeraX.app/Contents/bin/ChimeraX',
+].filter((p): p is string => typeof p === 'string');
 
 // Helper: check if path exists (async-safe replacement for existsSync)
 async function pathExists(p: string): Promise<boolean> {
@@ -128,7 +152,19 @@ export async function POST(request: NextRequest) {
 
     // Generate unique filenames for temp files
     const runId = randomUUID();
-    const language = script.language?.toLowerCase() || 'python';
+    // Pick a runtime. The DB may store language="python" for everything, so
+    // we also inspect the source for chimerax/pymol imports and switch to
+    // the matching application's headless interpreter.
+    const declaredLanguage = (script.language?.toLowerCase() || 'python');
+    const sourceText = script.content || '';
+    let language = declaredLanguage;
+    if (declaredLanguage === 'python') {
+      if (/^\s*from\s+chimerax\b|^\s*import\s+chimerax\b/m.test(sourceText)) {
+        language = 'chimerax';
+      } else if (/^\s*from\s+pymol\b|^\s*import\s+pymol\b/m.test(sourceText)) {
+        language = 'pymol';
+      }
+    }
 
     // Determine file extension and command
     let command: string;
@@ -136,25 +172,46 @@ export async function POST(request: NextRequest) {
     let extension: string;
 
     if (language === 'chimerax') {
-      return NextResponse.json({
-        execution: null,
-        output: '',
-        error: `This is a ChimeraX script that requires the ChimeraX application to run.\nPlease open ChimeraX and run: open ${script.filename}\nOr use the ChimeraX command line to execute this script.`,
-        exitCode: -1,
-        duration: 0,
-        status: 'requires_chimerax',
-        resultFiles: [],
-      });
+      // Try to run the script via ChimeraX's headless interpreter.
+      // We probe a list of common install paths because the official .dmg
+      // ships versioned bundle names (ChimeraX-1.12.app, etc.).
+      let chimeraBin: string | null = null;
+      for (const candidate of CHIMERAX_CANDIDATES) {
+        if (await pathExists(candidate)) {
+          chimeraBin = candidate;
+          break;
+        }
+      }
+      if (!chimeraBin) {
+        return NextResponse.json({
+          execution: null,
+          output: '',
+          error: `ChimeraX is not installed. Looked in:\n${CHIMERAX_CANDIDATES.map(p => '  ' + p).join('\n')}\nPlease install UCSF ChimeraX from https://www.cgl.ucsf.edu/chimera/download.html or set SCRIPT_MANAGER_CHIMERAX_BIN to the ChimeraX binary path.`,
+          exitCode: -1,
+          duration: 0,
+          status: 'requires_chimerax',
+          resultFiles: [],
+        });
+      }
+      extension = '.py';
+      command = chimeraBin;
     } else if (language === 'pymol') {
-      return NextResponse.json({
-        execution: null,
-        output: '',
-        error: `This is a PyMOL script that requires the PyMOL application to run.\nPlease open PyMOL and run: @${script.filename}\nOr use the PyMOL command line to execute this script.`,
-        exitCode: -1,
-        duration: 0,
-        status: 'requires_pymol',
-        resultFiles: [],
-      });
+      // Run via PyMOL's headless interpreter (MacPyMOL or pymol -c on Linux).
+      // Scripts that do `from pymol import cmd` execute inside PyMOL's
+      // bundled Python runtime.
+      if (!(await pathExists(PYMOL_BIN))) {
+        return NextResponse.json({
+          execution: null,
+          output: '',
+          error: `PyMOL is not installed at ${PYMOL_BIN}.\nPlease install PyMOL from https://pymol.org or set SCRIPT_MANAGER_PYMOL_BIN to the pymol binary path.`,
+          exitCode: -1,
+          duration: 0,
+          status: 'requires_pymol',
+          resultFiles: [],
+        });
+      }
+      extension = '.py';
+      command = PYMOL_BIN;
     } else if (language === 'shell' || language === 'bash' || language === 'sh') {
       extension = '.sh';
       command = 'bash';
@@ -163,7 +220,7 @@ export async function POST(request: NextRequest) {
       command = 'node';
     } else if (language === 'python' || language === 'py') {
       extension = '.py';
-      command = 'python3';
+      command = PYTHON_BIN;
     } else if (language === 'typescript' || language === 'ts') {
       return NextResponse.json({
         execution: null,
@@ -210,10 +267,48 @@ export async function POST(request: NextRequest) {
     const envOverrides: Record<string, string> = {};
     const inputFileList: string[] = [];
     if (execInputFiles && typeof execInputFiles === 'object') {
+      // If a flag (e.g. "--input", "-i") is already supplied via execParams,
+      // do not push its inputFile again as a positional argument.
+      const paramFlagKeys = new Set(
+        Object.keys(execParams || {}).filter(
+          (k) => typeof k === 'string' && (k.startsWith('--') || (k.startsWith('-') && k.length > 1))
+        )
+      );
       for (const [key, value] of Object.entries(execInputFiles)) {
+        // Skip malformed keys: descriptive names like "{x}_{y}.tiff",
+        // "input PDB file (-i/--input)", "font path (optional)" etc. are
+        // documentation, not argparse names.
+        if (
+          typeof key !== 'string' ||
+          key.includes(' ') ||
+          key.includes('/') ||
+          key.includes('(') ||
+          key.includes('{') ||
+          key.includes('<') ||
+          /^\W*\w*\.(tiff|pdb|pptx|png|json|csv|html|md|star|mrc|txt|pdf)\W*$/i.test(key)
+        ) {
+          // Still set INPUT_ env var so scripts that read it still get the path,
+          // but DO NOT push it onto args (which would become a positional
+          // argument argparse doesn't expect).
+          envOverrides[`INPUT_${key.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}`] = String(value);
+          continue;
+        }
+        // If this inputFile key matches a flag the caller already passed via
+        // execParams, only expose it as INPUT_<KEY> env var; do not push it
+        // onto args (which would be a duplicate / unknown positional).
+        if (paramFlagKeys.has(key)) {
+          envOverrides[`INPUT_${key.toUpperCase()}`] = String(value);
+          continue;
+        }
         const srcPath = join(UPLOAD_DIR, value);
         const resolvedSrc = resolve(srcPath);
-        if (await pathExists(resolvedSrc) && resolvedSrc.startsWith(resolve(UPLOAD_DIR))) {
+        // If the value is already an absolute path under the mock-inputs
+        // dir (test-all passes these so scripts can read the flag value
+        // directly), trust it and skip the upload-dir copy.
+        if (typeof value === 'string' && value.startsWith('/tmp/test-inputs/') && await pathExists(value)) {
+          inputFileList.push(value);
+          envOverrides[`INPUT_${key.toUpperCase()}`] = value;
+        } else if (await pathExists(resolvedSrc) && resolvedSrc.startsWith(resolve(UPLOAD_DIR))) {
           // Copy with runId prefix to avoid collisions
           const destPath = join(TMP_DIR, `${runId}_${value}`);
           const resolvedDest = resolve(destPath);
@@ -260,7 +355,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (hasArgparse) {
+    if (language === 'pymol' || language === 'chimerax') {
+      // PyMOL and ChimeraX use their own argument conventions:
+      // PyMOL:    pymol -c script.py [args...]
+      // ChimeraX: ChimeraX --nogui --script script.py [args...]
+      // Their Python scripts read runtime globals (cmd / run) and params via
+      // INPUT_<KEY> env vars; we skip the argparse/sys.argv path here.
+      if (language === 'pymol') {
+        args = ['-c', scriptFile];
+      } else {
+        // --exit makes ChimeraX quit as soon as the script finishes; without
+        // it the process keeps the GUI event loop alive waiting for stdin.
+        args = ['--nogui', '--silent', '--exit', '--script', scriptFile];
+      }
+    } else if (hasArgparse) {
       // Argparse-based scripts: convert params to --key value format
       args = [scriptFile];
       if (execParams && typeof execParams === 'object') {
@@ -323,6 +431,15 @@ export async function POST(request: NextRequest) {
 
     // Execute the script with timeout (default 60s, min 5s, max 600s)
     const timeoutMs = Math.max(5000, Math.min(600000, requestTimeout || 60000));
+    // For chimerax/pymol scripts, expose a stable SESSION_PATH env var so the
+    // script can save its session/state with `run(session, f"save $SESSION_PATH")`
+    // (chimerax) or `cmd.save(SESSION_PATH)` (pymol). The resultFiles collector
+    // picks up any file with the runId prefix.
+    if (language === 'chimerax' || language === 'pymol') {
+      const ext = language === 'pymol' ? 'pse' : 'cxs';
+      envOverrides['SESSION_PATH'] = join(TMP_DIR, `${runId}_session.${ext}`);
+    }
+
     const result = await executeCommand(command, args, envOverrides, timeoutMs);
 
     // Determine status

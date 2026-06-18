@@ -5,7 +5,12 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 
 const MOCK_DIR = '/tmp/test-inputs';
-const UPLOAD_DIR = '/home/z/my-project/uploads';
+// Make sure scripts that read the flag value (e.g. args.input) actually find
+// the file. We pass absolute paths to mock params; the execute route
+// recognizes this and skips the per-run copy step.
+const MOCK_DIR_ABS = MOCK_DIR;
+// Respect env var (matches /api/execute); fall back to <cwd>/uploads.
+const UPLOAD_DIR = process.env.SCRIPT_MANAGER_UPLOAD_DIR || join(process.cwd(), 'uploads');
 
 // Mock file contents for different file types
 const MOCK_FILES: Record<string, string> = {
@@ -90,59 +95,110 @@ function generateMockParams(script: any): { params: Record<string, string>; inpu
     const pName = p.name?.toLowerCase() || '';
     const pType = p.type?.toLowerCase() || '';
 
-    if (p.default !== undefined && p.default !== null) {
-      params[p.name] = String(p.default);
-    } else if (pType === 'file' || pName.includes('path') || pName.includes('file') || pName.includes('_path') || pName.includes('_file')) {
-      params[p.name] = getMockFilePath(pName);
+    // Skip params whose name is malformed in the DB or which carry a default
+    // — letting the script use its own default is safer than injecting a wrong
+    // value.
+    if (typeof p.name !== 'string' || p.name.trim() === '') continue;
+    if (p.default !== undefined && p.default !== null) continue;
+
+    // Split composite names like "-i / --input" into each flag so they all
+    // get the same mock value (e.g. both -i and --input will be populated).
+    const flagNames = p.name.includes(' / ')
+      ? p.name.split(' / ').map((s: string) => s.trim()).filter(Boolean)
+      : [p.name];
+
+    // Skip any malformed segments (containing spaces or non-flag chars
+    // beyond what's expected). Plain "directory" style positional params
+    // with a default have already been skipped above.
+    const validFlags = flagNames.filter((n: string) => {
+      if (n.includes(' ')) return false;
+      if (n.startsWith('-') && !/^--?[A-Za-z][\w-]*$/.test(n)) return false;
+      return true;
+    });
+    if (validFlags.length === 0) continue;
+
+    // Use the first valid flag's name for keyword heuristics — composite
+    // names like "-i / --input" lose the descriptive words ("path", "file")
+    // that drive type inference.
+    const inferName = (validFlags[0] || pName).toLowerCase();
+
+    let value: string;
+    if (pType === 'file' || pType === 'path' || inferName.includes('path') || inferName.includes('file') || inferName.includes('input') || inferName.includes('output') || pName.includes('_path') || pName.includes('_file')) {
+      // Use the absolute path under /tmp/test-inputs so the script can open
+      // it directly. The execute route also recognizes this and skips the
+      // per-run copy step (avoiding a name collision on the read side).
+      const base = getMockFilePath(inferName).split('/').pop() || 'test.txt';
+      value = `${MOCK_DIR_ABS}/${base}`;
     } else if (pName.includes('url') || pName.includes('link')) {
-      params[p.name] = 'https://example.com';
+      value = 'https://example.com';
     } else if (pName.includes('color') || pName.includes('colour')) {
-      params[p.name] = '#10b981';
+      value = '#10b981';
     } else if (pName.includes('style') || pName.includes('theme')) {
-      params[p.name] = 'modern';
+      value = 'modern';
     } else if (pName.includes('symbol') || pName.includes('ticker') || pName.includes('stock')) {
-      params[p.name] = 'AAPL';
+      value = 'AAPL';
     } else if (pName.includes('query') || pName.includes('search') || pName.includes('keyword')) {
-      params[p.name] = 'test query';
+      value = 'test query';
     } else if (pName.includes('description') || pName.includes('text') || pName.includes('content') || pName.includes('message')) {
-      params[p.name] = 'Sample test content for validation';
+      value = 'Sample test content for validation';
     } else if (pName.includes('name') || pName.includes('title') || pName.includes('label')) {
-      params[p.name] = 'Test Script';
+      value = 'Test Script';
     } else if (pName.includes('count') || pName.includes('number') || pName.includes('num') || pName.includes('size')) {
-      params[p.name] = '10';
+      value = '10';
     } else if (pType === 'number' || pType === 'int' || pType === 'integer' || pType === 'float') {
-      params[p.name] = '1';
+      value = '1';
     } else if (pType === 'boolean' || pType === 'bool') {
-      params[p.name] = 'true';
+      value = 'true';
     } else {
-      params[p.name] = 'test';
+      value = 'test';
+    }
+
+    // Write the value under every valid flag name. argparse scripts
+    // typically use the long form; the execute route already maps a
+    // single-dash key as-is and a non-dash key to --key.
+    for (const flag of validFlags) {
+      params[flag] = value;
     }
   }
 
   // Generate mock input files
   for (const f of scriptInputFiles) {
     const fName = f.name?.toLowerCase() || '';
+    let value: string;
     if (fName.includes('pdb') || fName.includes('protein') || fName.includes('structure')) {
-      inputFiles[f.name] = 'test.pdb';
+      value = `${MOCK_DIR_ABS}/test.pdb`;
     } else if (fName.includes('csv') || fName.includes('data')) {
-      inputFiles[f.name] = 'test.csv';
+      value = `${MOCK_DIR_ABS}/test.csv`;
     } else if (fName.includes('json')) {
-      inputFiles[f.name] = 'test.json';
+      value = `${MOCK_DIR_ABS}/test.json`;
     } else if (fName.includes('pdf')) {
-      inputFiles[f.name] = 'test.txt'; // no real PDF mock
+      value = `${MOCK_DIR_ABS}/test.txt`; // no real PDF mock
     } else if (fName.includes('html') || fName.includes('htm')) {
-      inputFiles[f.name] = 'test.html';
+      value = `${MOCK_DIR_ABS}/test.html`;
     } else if (fName.includes('star') || fName.includes('relion')) {
-      inputFiles[f.name] = 'test.star';
+      value = `${MOCK_DIR_ABS}/test.star`;
     } else if (fName.includes('mrc') || fName.includes('map') || fName.includes('volume')) {
-      inputFiles[f.name] = 'test.mrc';
+      value = `${MOCK_DIR_ABS}/test.mrc`;
     } else if (fName.includes('md') || fName.includes('markdown')) {
-      inputFiles[f.name] = 'test.md';
+      value = `${MOCK_DIR_ABS}/test.md`;
     } else if (fName.includes('pdb_dir') || fName.includes('rc_dir') || fName.includes('dir')) {
-      inputFiles[f.name] = 'test.txt'; // directory mock
+      value = MOCK_DIR_ABS.replace(/\/$/, ''); // directory itself (no trailing slash)
     } else {
-      inputFiles[f.name] = 'test.txt';
+      value = `${MOCK_DIR_ABS}/test.txt`;
     }
+
+    // Resolve the dict key for the execute route. Names like
+    // "input PDB file (-i/--input)" should be sent under a real argparse
+    // flag, e.g. "--input" or "-i". The execute route already skips keys
+    // that look like descriptions (contain spaces, parens, braces, slashes),
+    // so we override the key here when we can extract a flag.
+    let key = f.name;
+    const flagMatch = f.name.match(/\(([-]{1,2}[A-Za-z][\w-]*)\s*\/\s*([-]{1,2}[A-Za-z][\w-]*)\)/);
+    if (flagMatch) {
+      key = flagMatch[2]; // prefer the long form
+    }
+
+    inputFiles[key] = value;
   }
 
   // Script-specific overrides
@@ -201,8 +257,23 @@ export async function POST(request: NextRequest) {
     for (const script of scripts) {
       const lang = script.language?.toLowerCase() || '';
 
-      // Check unsupported languages
-      if (lang === 'chimerax' || lang === 'pymol') {
+      // Note: chimerax/pymol scripts used to be short-circuited here, but
+      // /api/execute now has the chimerax/pymol runtime branches and can
+      // actually run them. We let /api/execute decide (it returns
+      // 'requires_chimerax' / 'requires_pymol' / 'success' as appropriate),
+      // so we don't need a special-case here.
+
+      // Some chimerax scripts operate on whatever models are already loaded
+      // in the session (description contains "ChimeraX session" / "pre-loaded").
+      // The mock can't simulate that, so treat them as requires_app.
+      const scriptInputFilesCheck = (() => {
+        try { return JSON.parse(script.inputFiles || '[]'); } catch { return []; }
+      })();
+      const needsChimeraContext = scriptInputFilesCheck.some((f: any) =>
+        typeof f?.description === 'string' &&
+        /(must be (open|loaded|pre-?loaded) in (the )?ChimeraX|must be opened in (the )?ChimeraX|already (open|loaded) in (the )?ChimeraX)/i.test(f.description)
+      );
+      if (needsChimeraContext && lang === 'chimerax') {
         const { params: mockParams, inputFiles: mockInputFiles } = generateMockParams(script);
         results.push({
           id: script.id,
@@ -212,7 +283,29 @@ export async function POST(request: NextRequest) {
           status: 'requires_app',
           mockParams,
           mockInputFiles,
-          error: `Requires ${lang === 'chimerax' ? 'ChimeraX' : 'PyMOL'} application`,
+          error: 'Requires a pre-loaded ChimeraX model in the session. Open the structure in ChimeraX first, then run the script.',
+        });
+        continue;
+      }
+
+      // Detect GUI-only scripts: importing tkinter, PyQt5, PySide, wxPython,
+      // or in a "Runner" category means they need a display server we don't
+      // have in headless test environments.
+      const src = (script.content || '').toLowerCase();
+      const guiImport =
+        /\b(import\s+(tkinter|from\s+tkinter)|from\s+pyqt5|import\s+pyqt5|from\s+pyside|import\s+pyside|from\s+wxpython|import\s+wxpython)\b/.test(src) ||
+        /\b(QApplication|QMainWindow|tk\.Tk|wx\.App)\b/.test(src);
+      if (guiImport || (script.category || '').toLowerCase() === 'runner') {
+        const { params: mockParams, inputFiles: mockInputFiles } = generateMockParams(script);
+        results.push({
+          id: script.id,
+          name: script.name,
+          language: script.language,
+          category: script.category || '',
+          status: 'requires_app',
+          mockParams,
+          mockInputFiles,
+          error: 'Requires a GUI runtime (tkinter/PyQt5/PySide); not executable in headless test-all',
         });
         continue;
       }
@@ -237,9 +330,10 @@ export async function POST(request: NextRequest) {
 
       // Execute via internal API call
       try {
+        const port = process.env.PORT || '3002';
         const baseUrl = process.env.VERCEL_URL
           ? `https://${process.env.VERCEL_URL}`
-          : `http://localhost:${process.env.PORT || 3003}`;
+          : `http://localhost:${port}`;
 
         const execResponse = await fetch(`${baseUrl}/api/execute`, {
           method: 'POST',
@@ -272,7 +366,7 @@ export async function POST(request: NextRequest) {
           name: script.name,
           language: script.language,
           category: script.category || '',
-          status: execData.status === 'success' ? 'success' : 'error',
+          status: execData.status === 'success' ? 'success' : (execData.status && execData.status.startsWith('requires_') ? 'requires_app' : (execData.status || 'error')),
           mockParams,
           mockInputFiles,
           output: (execData.output || '').slice(0, 500),

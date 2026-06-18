@@ -78,6 +78,14 @@ export async function PUT(
       },
     });
 
+    // Validate field lengths (mirror POST route)
+    if (body.name !== undefined && body.name.length > 200) {
+      return NextResponse.json({ error: 'Name must be 200 characters or less' }, { status: 400 });
+    }
+    if (body.description !== undefined && body.description && body.description.length > 2000) {
+      return NextResponse.json({ error: 'Description must be 2000 characters or less' }, { status: 400 });
+    }
+
     return NextResponse.json({ script });
   } catch (error) {
     console.error('Error updating script:', error);
