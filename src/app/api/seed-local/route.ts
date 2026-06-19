@@ -1,10 +1,22 @@
-// @ts-nocheck
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
+import { homedir } from 'os';
 
-const LOCAL_SCRIPTS_DIR = '/home/z/my-project/local-scripts';
+// Local scripts directory. Resolution order:
+//   1. SCRIPT_MANAGER_LOCAL_DIR env var (absolute path)
+//   2. <repo>/local-scripts (lives next to package.json)
+//   3. ~/script-manager/local-scripts
+// The previous hardcoded /home/z/... Linux path made this route fail on
+// macOS; now it works in any environment.
+const LOCAL_SCRIPTS_DIR = (() => {
+  const env = process.env.SCRIPT_MANAGER_LOCAL_DIR;
+  if (env && env.trim()) return resolve(env);
+  const cwdLocal = resolve(process.cwd(), 'local-scripts');
+  if (existsSync(cwdLocal)) return cwdLocal;
+  return resolve(homedir(), 'script-manager', 'local-scripts');
+})();
 
 // Script metadata registry — manually curated for accurate categorization
 interface ScriptMeta {

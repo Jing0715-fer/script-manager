@@ -197,11 +197,11 @@ test.describe('Execute flow', () => {
 
   test('POST /api/execute runs a real Python script and captures output', async ({ request }) => {
     // Find a python script with simple content
-    const scripts = await getScripts(request);
-    const pyScript = scripts.find((s: any) => s.language === 'python');
+    const scripts = (await getScripts(request)) as Array<{ id: string; language: string }>;
+    const pyScript: { id: string; language: string } | undefined = scripts.find((s) => s.language === 'python');
     if (!pyScript) test.skip();
     const res = await request.post('/api/execute', {
-      data: { id: pyScript.id, params: {} },
+      data: { id: pyScript!.id, params: {} },
     });
     // Either 200 (success) or 500 (script may need real env). Both contain useful info.
     expect([200, 500]).toContain(res.status());
@@ -211,7 +211,7 @@ test.describe('Execute flow', () => {
       expect(data).toHaveProperty('error');
       expect(data).toHaveProperty('exitCode');
     }
-  }, { timeout: 60000 });
+  });
 });
 
 test.describe('File upload/download', () => {
@@ -267,8 +267,14 @@ test.describe('File upload/download', () => {
   });
 
   test('GET /api/files/[id] returns 404 for missing file', async ({ request }) => {
-    const res = await request.get('/api/files/nonexistent-id-xyz');
+    // id is a UUID hex prefix (8 chars); use a valid-format but non-existent id.
+    const res = await request.get('/api/files/deadbeef');
     expect(res.status()).toBe(404);
+  });
+
+  test('GET /api/files/[id] rejects non-hex id with 400', async ({ request }) => {
+    const res = await request.get('/api/files/not-a-hex-id!');
+    expect(res.status()).toBe(400);
   });
 
   test('GET /api/files/download rejects path traversal', async ({ request }) => {
@@ -400,6 +406,186 @@ test.describe('Performance & stability', () => {
     );
     for (const r of responses) {
       expect(r.ok()).toBeTruthy();
+    }
+  });
+});
+
+test.describe('Additional API coverage', () => {
+  test('GET /api/templates returns built-in templates', async ({ request }) => {
+    const res = await request.get('/api/templates');
+    expect(res.ok()).toBeTruthy();
+    const templates = await res.json();
+    expect(Array.isArray(templates)).toBeTruthy();
+    expect(templates.length).toBeGreaterThan(0);
+    // Each template has id, name, code, appType
+    for (const t of templates) {
+      expect(t).toHaveProperty('id');
+      expect(t).toHaveProperty('name');
+      expect(t).toHaveProperty('code');
+    }
+  });
+
+  test('GET /api/templates filters by appType', async ({ request }) => {
+    const res = await request.get('/api/templates?appType=chimerax');
+    expect(res.ok()).toBeTruthy();
+    const templates = await res.json();
+    for (const t of templates) {
+      expect(t.appType).toBe('chimerax');
+    }
+  });
+
+  test('GET /api/scripts/check-duplicate?filename=X finds existing scripts', async ({ request }) => {
+    const scripts = await getScripts(request);
+    if (scripts.length === 0) test.skip();
+    const existing = scripts[0];
+    const res = await request.get(`/api/scripts/check-duplicate?filename=${encodeURIComponent(existing.filename)}`);
+    expect(res.ok()).toBeTruthy();
+    const data = await res.json();
+    expect(data.exists).toBe(true);
+    expect(data.script.id).toBe(existing.id);
+  });
+
+  test('GET /api/scripts/check-duplicate returns exists:false for new filename', async ({ request }) => {
+    const res = await request.get('/api/scripts/check-duplicate?filename=__definitely_does_not_exist_xyz__.py');
+    expect(res.ok()).toBeTruthy();
+    const data = await res.json();
+    expect(data.exists).toBe(false);
+  });
+
+  test('GET /api/scripts/check-duplicate rejects missing filename with 400', async ({ request }) => {
+    const res = await request.get('/api/scripts/check-duplicate');
+    expect(res.status()).toBe(400);
+  });
+
+  test('POST /api/scripts/clean-descriptions dry-run returns report', async ({ request }) => {
+    const res = await request.post('/api/scripts/clean-descriptions', { data: { dryRun: true } });
+    expect(res.ok()).toBeTruthy();
+    const data = await res.json();
+    expect(data.dryRun).toBe(true);
+    expect(typeof data.total).toBe('number');
+    expect(data.total).toBeGreaterThan(0);
+  });
+
+  test('GET /api/scripts/[id]/versions returns version history', async ({ request }) => {
+    // Use an existing script (versions list is empty for never-edited scripts)
+    const scripts = await getScripts(request);
+    if (scripts.length === 0) test.skip();
+    const res = await request.get(`/api/scripts/${scripts[0].id}/versions`);
+    // 200 (empty list) or 404 (route not implemented) — both acceptable
+    expect([200, 404]).toContain(res.status());
+    if (res.ok()) {
+      const data = await res.json();
+      expect(data).toHaveProperty('versions');
+      expect(Array.isArray(data.versions)).toBeTruthy();
+    }
+  });
+});
+
+test.describe('Input validation (security + correctness)', () => {
+  test('POST /api/scripts rejects missing required fields', async ({ request }) => {
+    const res = await request.post('/api/scripts', { data: { name: 'x' } });
+    expect(res.status()).toBe(400);
+  });
+
+  test('POST /api/scripts rejects name > 200 chars', async ({ request }) => {
+    const res = await request.post('/api/scripts', {
+      data: {
+        name: 'a'.repeat(201),
+        filename: `oversized_${Date.now()}.py`,
+        content: 'print(1)',
+      },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('POST /api/scripts rejects description > 2000 chars', async ({ request }) => {
+    const res = await request.post('/api/scripts', {
+      data: {
+        name: 'oversized-desc',
+        filename: `oversized_desc_${Date.now()}.py`,
+        content: 'print(1)',
+        description: 'x'.repeat(2001),
+      },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test('PUT /api/scripts/[id] validates name length BEFORE update', async ({ request }) => {
+    // First create a script
+    const created = await createScript(request, { name: 'valid_name_test' });
+    // Then try to update with oversized name
+    const res = await request.put(`/api/scripts/${created.id}`, {
+      data: { name: 'b'.repeat(201) },
+    });
+    expect(res.status()).toBe(400);
+    // Verify the original name is still intact (no partial update)
+    const check = await request.get(`/api/scripts/${created.id}`);
+    const data = await check.json();
+    expect(data.script.name).toBe('valid_name_test');
+    // Cleanup
+    await deleteScript(request, created.id);
+  });
+
+  test('POST /api/files/upload enforces 50 MB size cap', async ({ request }) => {
+    // Build a 51 MB buffer; expect 413.
+    const big = Buffer.alloc(51 * 1024 * 1024, 'a');
+    const res = await request.post('/api/files/upload', {
+      multipart: {
+        file: {
+          name: 'big.bin',
+          mimeType: 'application/octet-stream',
+          buffer: big,
+        },
+      },
+    });
+    expect(res.status()).toBe(413);
+  });
+
+  test('GET /api/scripts?category=Uncategorized returns only that category', async ({ request }) => {
+    const res = await request.get('/api/scripts?category=Uncategorized&excludeContent=true');
+    expect(res.ok()).toBeTruthy();
+    const data = await res.json();
+    for (const s of data.scripts ?? []) {
+      expect(s.category).toBe('Uncategorized');
+    }
+  });
+
+  test('GET /api/scripts?limit=5 returns at most 5', async ({ request }) => {
+    const res = await request.get('/api/scripts?limit=5&excludeContent=true');
+    expect(res.ok()).toBeTruthy();
+    const data = await res.json();
+    expect((data.scripts ?? []).length).toBeLessThanOrEqual(5);
+  });
+
+  test('GET /api/scripts?offset=10 paginates', async ({ request }) => {
+    const a = await request.get('/api/scripts?offset=0&limit=5&excludeContent=true');
+    const b = await request.get('/api/scripts?offset=10&limit=5&excludeContent=true');
+    expect(a.ok()).toBeTruthy();
+    expect(b.ok()).toBeTruthy();
+    const da = await a.json();
+    const db = await b.json();
+    // Different pages should have no overlap
+    const aIds = new Set((da.scripts ?? []).map((s: any) => s.id));
+    for (const s of db.scripts ?? []) {
+      expect(aIds.has(s.id)).toBe(false);
+    }
+  });
+});
+
+test.describe('seed-local endpoint', () => {
+  test('GET /api/seed-local returns 500 (directory missing) or 200 (imported count)', async ({ request }) => {
+    // Path is configurable; if no local-scripts dir is configured, we expect
+    // a 500 with a clear "directory not found" message. If a directory IS
+    // configured, we expect a 200 with imported/skipped counts.
+    const res = await request.get('/api/seed-local');
+    if (res.status() === 500) {
+      const data = await res.json();
+      expect(data.error).toContain('directory');
+    } else {
+      expect(res.ok()).toBeTruthy();
+      const data = await res.json();
+      expect(typeof data.imported).toBe('number');
+      expect(typeof data.total).toBe('number');
     }
   });
 });

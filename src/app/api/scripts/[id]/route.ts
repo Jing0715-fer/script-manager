@@ -50,6 +50,16 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
 
+    // Validate field lengths BEFORE update (mirror POST route). The previous
+    // version validated after the update, which would let an oversized value
+    // partially commit to the DB.
+    if (body.name !== undefined && body.name.length > 200) {
+      return NextResponse.json({ error: 'Name must be 200 characters or less' }, { status: 400 });
+    }
+    if (body.description !== undefined && body.description && body.description.length > 2000) {
+      return NextResponse.json({ error: 'Description must be 2000 characters or less' }, { status: 400 });
+    }
+
     const existing = await db.script.findUnique({ where: { id } });
     if (!existing) {
       return NextResponse.json(
@@ -77,14 +87,6 @@ export async function PUT(
         ...(body.tags !== undefined && { tags: body.tags }),
       },
     });
-
-    // Validate field lengths (mirror POST route)
-    if (body.name !== undefined && body.name.length > 200) {
-      return NextResponse.json({ error: 'Name must be 200 characters or less' }, { status: 400 });
-    }
-    if (body.description !== undefined && body.description && body.description.length > 2000) {
-      return NextResponse.json({ error: 'Description must be 2000 characters or less' }, { status: 400 });
-    }
 
     return NextResponse.json({ script });
   } catch (error) {

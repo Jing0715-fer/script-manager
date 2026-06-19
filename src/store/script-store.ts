@@ -32,7 +32,11 @@ interface ScriptStore {
   createScript: (data: Partial<Script>) => Promise<Script>;
   updateScript: (id: string, data: Partial<Script>) => Promise<Script>;
   deleteScript: (id: string) => Promise<void>;
-  executeScript: (id: string, params?: Record<string, unknown>) => Promise<{ output: string; error: string; resultFiles: Array<{ name: string; path: string; size: number }> }>;
+  executeScript: (
+    id: string,
+    params?: Record<string, unknown>,
+    inputFiles?: Record<string, string>
+  ) => Promise<{ output: string; error: string; resultFiles: Array<{ name: string; path: string; size: number }> }>;
   loadExecutions: (scriptId?: string) => Promise<void>;
   deleteExecution: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
@@ -155,10 +159,10 @@ export const useScriptStore = create<ScriptStore>()(
         }));
       },
 
-      executeScript: async (id, params) => {
+      executeScript: async (id, params, inputFiles) => {
         set({ isExecuting: true, executionOutput: '', executionError: '' });
         try {
-          const log = await api.executeScript(id, params);
+          const log = await api.executeScript(id, params, inputFiles);
           set((state) => ({
             isExecuting: false,
             executionOutput: log.output,

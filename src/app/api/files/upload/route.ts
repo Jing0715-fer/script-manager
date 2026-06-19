@@ -4,6 +4,12 @@ import { join } from 'path';
 import { randomUUID } from 'crypto';
 
 const UPLOAD_DIR = process.env.SCRIPT_MANAGER_UPLOAD_DIR || join(process.cwd(), 'uploads');
+// Default 50 MB cap to prevent OOM. Override via SCRIPT_MANAGER_MAX_UPLOAD_BYTES.
+const MAX_UPLOAD_BYTES = (() => {
+  const env = process.env.SCRIPT_MANAGER_MAX_UPLOAD_BYTES;
+  const n = env ? parseInt(env, 10) : 50 * 1024 * 1024;
+  return Number.isFinite(n) && n > 0 ? n : 50 * 1024 * 1024;
+})();
 
 // POST /api/files/upload - Upload a file (multipart/form-data)
 // Returns { id, name, size, type, url } where `name` is the stored filename
@@ -15,6 +21,14 @@ export async function POST(req: NextRequest) {
     const file = form.get('file');
     if (!file || typeof file === 'string') {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    }
+
+    // Enforce upload size limit before reading the body into memory.
+    if (typeof file.size === 'number' && file.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: `File too large. Max ${MAX_UPLOAD_BYTES} bytes (set SCRIPT_MANAGER_MAX_UPLOAD_BYTES to override)` },
+        { status: 413 }
+      );
     }
 
     await mkdir(UPLOAD_DIR, { recursive: true });
