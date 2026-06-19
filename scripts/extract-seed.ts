@@ -51,6 +51,22 @@ if (!existsSync(DB_PATH)) {
 
 const db = new Database(DB_PATH, { readonly: true });
 
+// Safety: if the source DB is empty (e.g. fresh clone after `db push` but
+// before seed), DON'T overwrite the committed prisma/seed-scripts.json
+// with an empty seed. That would erase the 41 public scripts.
+const scriptCount = (
+  db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM Script").get() ?? { n: 0 }
+).n;
+if (scriptCount === 0) {
+  console.log(
+    `⊘ Skipping extract: ${DB_PATH.replace(ROOT + "/", "")} has 0 Script rows.\n` +
+      `  This is normal for a fresh clone — using the committed prisma/seed-scripts.json.\n` +
+      `  (If you intentionally want to wipe the public seed, delete prisma/seed-scripts.json first.)`
+  );
+  db.close();
+  process.exit(0);
+}
+
 // Only ship source='github' (公开仓源) + 'manual' with explicit flag.
 // 李京的 manual 脚本是私人的 → 默认排除；想包含可用 INCLUDE_MANUAL=1
 const includeManual = process.env.INCLUDE_MANUAL === "1";
