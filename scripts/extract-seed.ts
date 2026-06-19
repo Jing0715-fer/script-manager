@@ -13,7 +13,7 @@
  */
 
 import { Database } from "bun:sqlite";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -39,6 +39,15 @@ type ScriptRow = {
   createdAt: string;
   updatedAt: string;
 };
+
+if (!existsSync(DB_PATH)) {
+  console.log(
+    `⊘ Skipping extract: ${DB_PATH.replace(ROOT + "/", "")} not found.\n` +
+      `  This is normal for a fresh clone — use the committed prisma/seed-scripts.json instead.\n` +
+      `  Run \`bun run db:seed:apply\` to load the public seed without extracting.`
+  );
+  process.exit(0);
+}
 
 const db = new Database(DB_PATH, { readonly: true });
 
