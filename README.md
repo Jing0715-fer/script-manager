@@ -51,21 +51,23 @@ bun install
 ### 2. 初始化数据库
 
 ```bash
-bunx prisma db push
-bunx prisma generate
+cp .env.example .env        # 默认 DATABASE_URL=file:../db/custom.db
+bunx prisma db push         # 创建 db/custom.db
+bun run db:seed             # 从 prisma/seed-scripts.json 导入 41 个公开脚本
 ```
 
-数据库默认 `db/custom.db`(`./prisma/schema.prisma` 里 `datasource db` 引用)。`.env` 里:
+数据库位于 `<repo-root>/db/custom.db`(`./prisma/schema.prisma` 里 `datasource db` 引用)。**41 个公开脚本**(`source='github'`,从 GitHub `Jing0715-fer/my-py-scripts` 同步)会随仓库一起分发,首次启动即可使用。
 
-```bash
-DATABASE_URL=file:./db/custom.db
-```
+**隐私隔离**:
+- `db/custom.db` 整体 gitignore — 你的 `ExecutionLog` / `LlmConfig` / `ScriptVersion` / 私人脚本不会上传
+- `.env` gitignore — `.env.example` 是模板,`DATABASE_URL` 默认值可适配任意 clone 位置
+- `source='manual'` 的脚本默认不参与 seed (李京的私人脚本不会被打包进公开仓)
 
 ### 3. 启动开发服务器
 
 ```bash
 bun run dev
-# → http://localhost:3003
+# → http://localhost:3002
 ```
 
 ### 4. 生产模式
@@ -73,7 +75,7 @@ bun run dev
 ```bash
 bun run build
 bun run start
-# → http://localhost:3003 (production)
+# → http://localhost:3002 (production)
 ```
 
 ### 5. 批量导入已有脚本
@@ -82,9 +84,20 @@ bun run start
 
 ```bash
 # 一次性把 /Users/lijing/Projects/script-manager/upload 里的所有 .py 录入
-curl -X POST http://localhost:3003/api/seed \
+curl -X POST http://localhost:3002/api/seed \
   -H "Content-Type: application/json" \
   -d '{"directory":"/Users/lijing/Projects/script-manager/upload","category":"auto"}'
+```
+
+### 6. 同步公开脚本 (开发者)
+
+如果你修改了 db 里的脚本(新增、调整 inputFiles 等),需要把最新数据同步回仓:
+
+```bash
+bun run db:seed:extract    # 重写 prisma/seed-scripts.json
+git add prisma/seed-scripts.json
+git commit -m "chore(seed): refresh from db"
+git push
 ```
 
 ## API 一览
