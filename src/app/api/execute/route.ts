@@ -263,9 +263,35 @@ export async function POST(request: NextRequest) {
       scriptInputFiles = JSON.parse(script.inputFiles || '[]');
     } catch { /* ignore */ }
 
+    // Parse script.params (metadata) so we can decide whether each key is a
+    // flag (boolean / store_true) and should NOT take a value. Without this,
+    // argparse-based scripts with `--flag action='store_true'` see their
+    // boolean value as a positional arg and fail with "unrecognized arguments".
+    interface ScriptParamMeta {
+      name: string;
+      type?: string;
+      required?: boolean;
+      description?: string;
+      default?: unknown;
+    }
+    let scriptParamMeta: ScriptParamMeta[] = [];
+    try {
+      scriptParamMeta = JSON.parse(script.params || '[]');
+    } catch { /* ignore */ }
+    const paramTypeByName = new Map<string, string>();
+    for (const p of scriptParamMeta) {
+      if (p && typeof p.name === 'string') {
+        paramTypeByName.set(p.name, (p.type || 'string').toLowerCase());
+      }
+    }
+    const isFlagParam = (key: string): boolean => {
+      const t = paramTypeByName.get(key);
+      return t === 'boolean' || t === 'bool' || t === 'flag';
+    };
+
     // Build environment variables and copy input files to tmp dir
     const envOverrides: Record<string, string> = {};
-    const inputFileList: string[] = [];
+    const inputFileList: Array<{ key: string; path: string }> = [];
     if (execInputFiles && typeof execInputFiles === 'object') {
       // If a flag (e.g. "--input", "-i") is already supplied via execParams,
       // do not push its inputFile again as a positional argument.
@@ -306,7 +332,7 @@ export async function POST(request: NextRequest) {
         // dir (test-all passes these so scripts can read the flag value
         // directly), trust it and skip the upload-dir copy.
         if (typeof value === 'string' && value.startsWith('/tmp/test-inputs/') && await pathExists(value)) {
-          inputFileList.push(value);
+          inputFileList.push({ key, path: value });
           envOverrides[`INPUT_${key.toUpperCase()}`] = value;
         } else if (await pathExists(resolvedSrc) && resolvedSrc.startsWith(resolve(UPLOAD_DIR))) {
           // Copy with runId prefix to avoid collisions
@@ -315,7 +341,7 @@ export async function POST(request: NextRequest) {
           if (resolvedDest.startsWith(resolve(TMP_DIR))) {
             try {
               await copyFile(srcPath, destPath);
-              inputFileList.push(destPath);
+              inputFileList.push({ key, path: destPath });
               envOverrides[`INPUT_${key.toUpperCase()}`] = destPath;
             } catch { /* ignore copy errors */ }
           }
@@ -369,25 +395,56 @@ export async function POST(request: NextRequest) {
         args = ['--nogui', '--silent', '--exit', '--script', scriptFile];
       }
     } else if (hasArgparse) {
-      // Argparse-based scripts: convert params to --key value format
+      // Argparse-based scripts: convert params to --key value format.
+      // Boolean / flag params (per script.params metadata) are appended as
+      // --key alone, since argparse `add_argument('--flag', action='store_true')`
+      // does not consume a value. Without this, "true" is treated as a
+      // positional arg and produces "unrecognized arguments".
+      // Input files whose key matches a known param name are passed as
+      // --key value (not positional), so argparse `--input_pdb FILE` works.
       args = [scriptFile];
+      // Build a set of names declared on the script for fast lookup. An input
+      // file whose name matches a declared name should bind to that flag
+      // (--key value); otherwise it falls back to a positional arg. Include
+      // BOTH script.params (CLI args) and script.inputFiles (file inputs
+      // declared via `add_argument('--input_pdb', type=str)`).
+      const declaredParamNames = new Set<string>();
+      for (const p of scriptParamMeta) {
+        if (p?.name) declaredParamNames.add(p.name);
+      }
+      for (const f of scriptInputFiles) {
+        if (f?.name) declaredParamNames.add(f.name);
+      }
       if (execParams && typeof execParams === 'object') {
         for (const [key, value] of Object.entries(execParams as Record<string, string>)) {
-          if (key.startsWith('-')) {
-            args.push(key, String(value));
+          const flagKey = key.startsWith('-') ? key : `--${key}`;
+          if (isFlagParam(key)) {
+            // Only include --flag when the value is truthy, mirroring store_true.
+            if (value && value !== 'false' && value !== '0') {
+              args.push(flagKey);
+            }
           } else {
-            args.push(`--${key}`, String(value));
+            args.push(flagKey, String(value));
           }
         }
       }
-      // Add positional args for input files
-      for (const fp of inputFileList) args.push(fp);
+      // Input files: bind to declared param flags as --key value; otherwise
+      // append as positional args.
+      const positionalInputs: string[] = [];
+      for (const f of inputFileList) {
+        if (declaredParamNames.has(f.key)) {
+          args.push(`--${f.key}`, f.path);
+        } else {
+          positionalInputs.push(f.path);
+        }
+      }
+      for (const fp of positionalInputs) args.push(fp);
     } else if (maxArgIndex > 0) {
       // sys.argv-based scripts: positional args
       args = [scriptFile];
 
       // Fill positional args: first from input files, then from params
-      const allFiles = [...inputFileList, ...paramFileList];
+      const allFiles = inputFileList.map((f) => f.path).concat(paramFileList);
       const paramValues = execParams && typeof execParams === 'object'
         ? Object.values(execParams as Record<string, string>).map(String)
         : [];
@@ -409,7 +466,7 @@ export async function POST(request: NextRequest) {
       args = [scriptFile];
       for (let i = 0; i < hintArgs.length; i++) {
         if (i < inputFileList.length) {
-          args.push(inputFileList[i]);
+          args.push(inputFileList[i].path);
         } else {
           const outputPath = join(TMP_DIR, `${runId}_output_${i}.txt`);
           args.push(outputPath);
